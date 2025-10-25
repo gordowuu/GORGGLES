@@ -72,11 +72,19 @@ success "Pre-flight checks passed"
 echo ""
 info "Launching EC2 instance..."
 
-read -p "Use Spot instance? (70% cheaper, may be interrupted) [y/N]: " -n 1 -r
-echo
-USE_SPOT=false
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    USE_SPOT=true
+# Non-interactive override via env var USE_SPOT (true/false). If not set, prompt.
+if [ -n "$USE_SPOT" ]; then
+    case "${USE_SPOT,,}" in
+        true|yes|y|1) USE_SPOT=true ;;
+        *) USE_SPOT=false ;;
+    esac
+else
+    read -p "Use Spot instance? (70% cheaper, may be interrupted) [y/N]: " -n 1 -r
+    echo
+    USE_SPOT=false
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        USE_SPOT=true
+    fi
 fi
 
 # Create security group if it doesn't exist

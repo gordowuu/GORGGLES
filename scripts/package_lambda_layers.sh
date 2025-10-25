@@ -87,15 +87,18 @@ fi
 
 # Upload FFmpeg layer
 echo "Uploading FFmpeg layer..."
-FFMPEG_LAYER_ARN=$(aws lambda publish-layer-version \
+if FFMPEG_LAYER_ARN=$(aws lambda publish-layer-version \
     --layer-name gorggle-ffmpeg \
     --description "FFmpeg static binary for video processing" \
     --zip-file fileb://ffmpeg-layer.zip \
     --compatible-runtimes python3.9 python3.10 python3.11 \
     --query 'LayerVersionArn' \
-    --output text)
-
-echo "✓ FFmpeg Layer ARN: $FFMPEG_LAYER_ARN"
+    --output text 2>/dev/null); then
+    echo "✓ FFmpeg Layer ARN: $FFMPEG_LAYER_ARN"
+else
+    echo "WARNING: Failed to publish FFmpeg layer (likely too large). Continuing without FFmpeg layer."
+    FFMPEG_LAYER_ARN=""
+fi
 
 # Upload Requests layer
 echo "Uploading Requests library layer..."

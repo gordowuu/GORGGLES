@@ -2,10 +2,12 @@
 # Requires: AWS CLI, Terraform, OpenSSH, Python (pip), PowerShell 5+
 
 param(
-    [string]$Region = "us-east-1",
-    [string]$AdminIpCidr = "0.0.0.0/0",
-    [string]$ModelFile = "models/large_noise_pt_noise_ft_433h.pt",
-    [switch]$UseSpot
+  [string]$Region = "us-east-1",
+  [string]$AdminIpCidr = "0.0.0.0/0",
+  [string]$ModelFile = "models/large_noise_pt_noise_ft_433h.pt",
+  [switch]$UseSpot,
+  [string]$EC2KeyName = "gorggle-key",
+  [string]$EC2KeyPath = "$HOME/.ssh/gorggle-key.pem"
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,9 +44,11 @@ Write-Host "[3/4] Deploying EC2 AV-HuBERT server..." -ForegroundColor Yellow
 # Try to use bash (Git Bash) if available
 $bash = Get-Command bash -ErrorAction SilentlyContinue
 if ($bash) {
-  $spotFlag = $UseSpot.IsPresent ? 'y' : 'n'
   $env:EC2_REGION = $Region
   $env:MODEL_FILE = (Resolve-Path (Join-Path (Split-Path -Parent $RepoRoot) $ModelFile)).Path
+  $env:USE_SPOT = $(if($UseSpot.IsPresent){'true'} else {'false'})
+  $env:EC2_KEY_NAME = $EC2KeyName
+  $env:EC2_KEY_PATH = $EC2KeyPath
 
   function Convert-ToMsysPath($winPath) {
     $full = (Resolve-Path $winPath).Path

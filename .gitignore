@@ -30,3 +30,7 @@ Thumbs.db
 # Archives
 *.zip
 
+# Large artifacts (do not commit)
+models/
+lambda_layers/
+infra/terraform/layer_arns.auto.tfvars
