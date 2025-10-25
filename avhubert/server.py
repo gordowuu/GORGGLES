@@ -6,13 +6,14 @@ import os
 import json
 import torch
 import boto3
+import dlib
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from pathlib import Path
 import tempfile
 import cv2
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import uvicorn
 
 # Import AV-HuBERT components (assumes fairseq and av_hubert are installed)
@@ -24,10 +25,19 @@ except ImportError:
 
 app = FastAPI(title="AV-HuBERT Lip Reading API", version="1.0.0")
 
-# Global model holder
+# Global model holders
 MODEL = None
 TASK = None
 GENERATOR = None
+FACE_DETECTOR = None
+LANDMARK_PREDICTOR = None
+MEAN_FACE = None
+
+# Model and preprocessing file paths
+MODEL_PATH = os.environ.get("AVHUBERT_MODEL_PATH", "/opt/avhubert/model.pt")
+FACE_DETECTOR_PATH = os.environ.get("FACE_DETECTOR_PATH", "/opt/avhubert/mmod_human_face_detector.dat")
+LANDMARK_PREDICTOR_PATH = os.environ.get("LANDMARK_PREDICTOR_PATH", "/opt/avhubert/shape_predictor_68_face_landmarks.dat")
+MEAN_FACE_PATH = os.environ.get("MEAN_FACE_PATH", "/opt/avhubert/mean_face.npy")
 s3_client = boto3.client('s3')
 
 # Model configuration
@@ -49,15 +59,14 @@ class PredictionResponse(BaseModel):
 
 
 def load_model():
-    """Load AV-HuBERT model on startup"""
-    global MODEL, TASK, GENERATOR
+    """Load AV-HuBERT model and preprocessing models on startup"""
+    global MODEL, TASK, GENERATOR, FACE_DETECTOR, LANDMARK_PREDICTOR, MEAN_FACE
     
+    # Load AV-HuBERT model
     if not Path(MODEL_PATH).exists():
         raise FileNotFoundError(f"Model not found at {MODEL_PATH}")
     
     print(f"Loading AV-HuBERT model from {MODEL_PATH}...")
-    
-    # Load model checkpoint
     models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task([MODEL_PATH])
     MODEL = models[0].to(DEVICE)
     MODEL.eval()
@@ -66,8 +75,25 @@ def load_model():
     # Setup generator for inference
     cfg = convert_namespace_to_omegaconf(saved_cfg)
     GENERATOR = task.build_generator(models, cfg)
+    print(f"AV-HuBERT model loaded successfully on {DEVICE}")
     
-    print(f"Model loaded successfully on {DEVICE}")
+    # Load face detection models
+    if not Path(FACE_DETECTOR_PATH).exists():
+        raise FileNotFoundError(f"Face detector not found at {FACE_DETECTOR_PATH}")
+    if not Path(LANDMARK_PREDICTOR_PATH).exists():
+        raise FileNotFoundError(f"Landmark predictor not found at {LANDMARK_PREDICTOR_PATH}")
+    
+    print("Loading dlib face detection models...")
+    FACE_DETECTOR = dlib.cnn_face_detection_model_v1(FACE_DETECTOR_PATH)
+    LANDMARK_PREDICTOR = dlib.shape_predictor(LANDMARK_PREDICTOR_PATH)
+    print("Face detection models loaded successfully")
+    
+    # Load mean face for mouth ROI alignment
+    if not Path(MEAN_FACE_PATH).exists():
+        raise FileNotFoundError(f"Mean face not found at {MEAN_FACE_PATH}")
+    
+    MEAN_FACE = np.load(MEAN_FACE_PATH)
+    print(f"Mean face loaded: shape {MEAN_FACE.shape}")
 
 
 def download_frames_from_s3(bucket: str, prefix: str, tmp_dir: Path) -> List[Path]:
@@ -92,31 +118,114 @@ def download_frames_from_s3(bucket: str, prefix: str, tmp_dir: Path) -> List[Pat
     return frame_paths
 
 
-def preprocess_frames(frame_paths: List[Path], target_size=(224, 224)) -> torch.Tensor:
+def warp_img(src: np.ndarray, dst: np.ndarray, img: np.ndarray, std_size: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Warp image based on facial landmarks for mouth ROI alignment"""
+    tform = cv2.estimateAffinePartial2D(src, dst, method=cv2.RANSAC, ransacReprojThreshold=100)[0]
+    warped = cv2.warpAffine(img, tform, (std_size, std_size))
+    return warped, tform
+
+
+def cut_patch(img: np.ndarray, landmarks: np.ndarray, height: int, width: int, threshold: int = 5) -> np.ndarray:
     """
-    Preprocess video frames for AV-HuBERT
+    Cut mouth ROI patch from image using facial landmarks
+    Landmarks indices for mouth: 48-68 (outer and inner lip)
+    """
+    center_x, center_y = np.mean(landmarks[48:68], axis=0).astype(int)
+    
+    if center_y - height < 0:
+        center_y = height
+    if center_y - height < 0 - threshold:
+        raise Exception('too much bias in height')
+    if center_x - width < 0:
+        center_x = width
+    if center_x - width < 0 - threshold:
+        raise Exception('too much bias in width')
+
+    if center_y + height > img.shape[0]:
+        center_y = img.shape[0] - height
+    if center_y + height > img.shape[0] + threshold:
+        raise Exception('too much bias in height')
+    if center_x + width > img.shape[1]:
+        center_x = img.shape[1] - width
+    if center_x + width > img.shape[1] + threshold:
+        raise Exception('too much bias in width')
+        
+    cutted_img = np.copy(img[center_y - height:center_y + height, center_x - width:center_x + width])
+    return cutted_img
+
+
+def detect_face_and_extract_mouth(frame: np.ndarray) -> np.ndarray:
+    """
+    Detect face in frame and extract mouth ROI (96x96)
+    Returns: mouth ROI as numpy array or None if no face detected
+    """
+    # Detect faces
+    dets = FACE_DETECTOR(frame, 1)
+    
+    if len(dets) == 0:
+        return None
+    
+    # Use first detected face (highest confidence)
+    rect = dets[0].rect
+    
+    # Get facial landmarks
+    shape = LANDMARK_PREDICTOR(frame, rect)
+    landmarks = np.array([[p.x, p.y] for p in shape.parts()])
+    
+    # Warp image to align face with mean face
+    warped_frame, _ = warp_img(landmarks, MEAN_FACE, frame, 256)
+    warped_landmarks = LANDMARK_PREDICTOR(warped_frame, dlib.rectangle(0, 0, 256, 256))
+    warped_landmarks = np.array([[p.x, p.y] for p in warped_landmarks.parts()])
+    
+    # Extract mouth patch (96x96 centered on mouth)
+    try:
+        mouth_roi = cut_patch(warped_frame, warped_landmarks, 48, 48)  # 96x96 patch
+        mouth_roi = cv2.resize(mouth_roi, (96, 96))
+        return mouth_roi
+    except Exception as e:
+        print(f"Error extracting mouth ROI: {e}")
+        return None
+
+
+def preprocess_frames(frame_paths: List[Path]) -> torch.Tensor:
+    """
+    Preprocess video frames for AV-HuBERT:
+    1. Detect face in each frame
+    2. Extract mouth ROI (96x96)
+    3. Normalize and convert to tensor
     Returns: tensor of shape (T, C, H, W) where T is number of frames
     """
-    frames = []
+    mouth_rois = []
+    
     for frame_path in frame_paths:
+        # Read image
         img = cv2.imread(str(frame_path))
         if img is None:
             continue
-        # Resize and normalize
-        img = cv2.resize(img, target_size)
+        
+        # Convert BGR to RGB
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = img.astype(np.float32) / 255.0
-        # Normalize with ImageNet stats
-        mean = np.array([0.485, 0.456, 0.406])
-        std = np.array([0.229, 0.224, 0.225])
-        img = (img - mean) / std
-        frames.append(img)
+        
+        # Extract mouth ROI
+        mouth_roi = detect_face_and_extract_mouth(img)
+        
+        if mouth_roi is None:
+            # If face detection fails, skip frame or use previous frame
+            if mouth_rois:
+                mouth_roi = mouth_rois[-1]  # Repeat last valid frame
+            else:
+                continue  # Skip if no valid frames yet
+        
+        # Normalize to [0, 1]
+        mouth_roi = mouth_roi.astype(np.float32) / 255.0
+        
+        mouth_rois.append(mouth_roi)
     
-    if not frames:
-        raise ValueError("No valid frames found")
+    if not mouth_rois:
+        raise ValueError("No valid mouth ROIs extracted from frames")
     
     # Stack and convert to tensor (T, H, W, C) -> (T, C, H, W)
-    frames_array = np.stack(frames, axis=0)
+    frames_array = np.stack(mouth_rois, axis=0)
     frames_tensor = torch.from_numpy(frames_array).permute(0, 3, 1, 2).float()
     
     return frames_tensor
