@@ -13,7 +13,7 @@ from pathlib import Path
 import tempfile
 import cv2
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Union
 import uvicorn
 
 # Import AV-HuBERT components (assumes fairseq and av_hubert are installed)
@@ -47,7 +47,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 class PredictionRequest(BaseModel):
     s3_bucket: str
-    frames_prefix: str
+    frames_prefix: str = None
+    s3_video_key: str = None  # Optional raw video path in S3 if frames are not provided
     fps: int = 25
     audio_s3_key: str = None  # Optional: for audio-visual mode
 
@@ -116,6 +117,40 @@ def download_frames_from_s3(bucket: str, prefix: str, tmp_dir: Path) -> List[Pat
             frame_paths.append(local_path)
     
     return frame_paths
+
+
+def download_video_from_s3(bucket: str, key: str, tmp_dir: Path) -> Path:
+    """Download a video file from S3 to a temporary directory"""
+    local_path = tmp_dir / "input.mp4"
+    s3_client.download_file(bucket, key, str(local_path))
+    return local_path
+
+
+def extract_frames_from_video(video_path: Path, target_fps: int) -> List[np.ndarray]:
+    """Extract frames from a video using OpenCV at approximately target_fps"""
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError("Failed to open video with OpenCV")
+
+    orig_fps = cap.get(cv2.CAP_PROP_FPS)
+    if not orig_fps or orig_fps <= 0 or np.isnan(orig_fps):
+        orig_fps = float(target_fps)
+
+    frame_interval = max(1, int(round(orig_fps / float(target_fps))))
+    frames: List[np.ndarray] = []
+    idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if idx % frame_interval == 0:
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        idx += 1
+    cap.release()
+
+    if not frames:
+        raise ValueError("No frames extracted from video")
+    return frames
 
 
 def warp_img(src: np.ndarray, dst: np.ndarray, img: np.ndarray, std_size: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -187,7 +222,7 @@ def detect_face_and_extract_mouth(frame: np.ndarray) -> np.ndarray:
         return None
 
 
-def preprocess_frames(frame_paths: List[Path]) -> torch.Tensor:
+def preprocess_frames(frames: List[Union[Path, np.ndarray]]) -> torch.Tensor:
     """
     Preprocess video frames for AV-HuBERT:
     1. Detect face in each frame
@@ -195,16 +230,17 @@ def preprocess_frames(frame_paths: List[Path]) -> torch.Tensor:
     3. Normalize and convert to tensor
     Returns: tensor of shape (T, C, H, W) where T is number of frames
     """
-    mouth_rois = []
+    mouth_rois: List[np.ndarray] = []
     
-    for frame_path in frame_paths:
-        # Read image
-        img = cv2.imread(str(frame_path))
-        if img is None:
-            continue
-        
-        # Convert BGR to RGB
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    for item in frames:
+        # Support either file paths or in-memory images
+        if isinstance(item, (str, Path)):
+            img_bgr = cv2.imread(str(item))
+            if img_bgr is None:
+                continue
+            img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        else:
+            img = item  # assumed RGB numpy array
         
         # Extract mouth ROI
         mouth_roi = detect_face_and_extract_mouth(img)
@@ -290,20 +326,37 @@ async def predict(request: PredictionRequest):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             
-            # Download frames from S3
-            print(f"Downloading frames from s3://{request.s3_bucket}/{request.frames_prefix}")
-            frame_paths = download_frames_from_s3(request.s3_bucket, request.frames_prefix, tmp_path)
-            
-            if not frame_paths:
-                raise HTTPException(status_code=400, detail="No frames found at specified S3 location")
-            
-            print(f"Processing {len(frame_paths)} frames")
-            
-            # Preprocess frames
-            frames_tensor = preprocess_frames(frame_paths)
+            frames_tensor: torch.Tensor
+
+            if request.frames_prefix:
+                # Download frames from S3
+                print(f"Downloading frames from s3://{request.s3_bucket}/{request.frames_prefix}")
+                frame_paths = download_frames_from_s3(request.s3_bucket, request.frames_prefix, tmp_path)
+                if not frame_paths:
+                    raise HTTPException(status_code=400, detail="No frames found at specified S3 location")
+                print(f"Processing {len(frame_paths)} frames")
+                frames_tensor = preprocess_frames(frame_paths)
+            elif request.s3_video_key:
+                # Fallback: download video and extract frames with OpenCV (no FFmpeg required)
+                print(f"Downloading video from s3://{request.s3_bucket}/{request.s3_video_key}")
+                video_path = download_video_from_s3(request.s3_bucket, request.s3_video_key, tmp_path)
+                frames = extract_frames_from_video(video_path, request.fps)
+                print(f"Processing {len(frames)} frames extracted via OpenCV")
+                frames_tensor = preprocess_frames(frames)
+            else:
+                raise HTTPException(status_code=400, detail="Must provide frames_prefix or s3_video_key")
             
             # Run inference
             result = run_inference(frames_tensor)
+            
+            # Add coarse time-aligned segment covering full duration as a quick implementation
+            duration = frames_tensor.size(0) / float(request.fps)
+            if 'segments' in result and not result['segments']:
+                result['segments'] = [{
+                    'start': 0.0,
+                    'end': duration,
+                    'text': result.get('text', '')
+                }]
             
             return PredictionResponse(**result)
     

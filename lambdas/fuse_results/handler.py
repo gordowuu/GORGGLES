@@ -2,8 +2,12 @@ import os
 import json
 import boto3
 import requests
+import logging
 from decimal import Decimal
 from typing import List, Dict, Any
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 s3 = boto3.client('s3')
 ddb = boto3.client('dynamodb')
@@ -118,64 +122,69 @@ def fuse_audio_and_visual(aligned_segments: List[Dict], lipreading_result: Dict)
 
 
 def handler(event, context):
-    job_id = event.get("jobId")
+    try:
+        job_id = event.get("jobId")
+        if not job_id:
+            raise ValueError("Missing jobId in event")
 
-    transcribe_result = event.get("transcribe", {}).get("result", {})
-    rekognition = event.get("rekognition", {})
-    lipreading = event.get("lipreading", {})
-    media = event.get("media", {})
-    
-    # Download full transcript from Transcribe
-    transcript_uri = transcribe_result.get('Transcript', {}).get('TranscriptFileUri')
-    transcribe_data = {}
-    if transcript_uri:
-        transcribe_data = download_transcript(transcript_uri)
-    
-    # Get face detections
-    faces = rekognition.get("faces", [])
-    fps = media.get('fps', 25)
-    
-    # Align speakers with face positions
-    aligned_segments = align_speakers_with_faces(transcribe_data, faces, fps)
-    
-    # Fuse audio and visual information
-    fused_segments = fuse_audio_and_visual(aligned_segments, lipreading)
-    
-    # Build final overlay data
-    fusion = {
-        "jobId": job_id,
-        "segments": fused_segments,
-        "metadata": {
-            "total_segments": len(fused_segments),
-            "speakers_detected": len(set(s['speaker'] for s in fused_segments)),
-            "faces_tracked": len(faces),
-            "lipreading_available": bool(lipreading.get('text')),
-            "lipreading_confidence": lipreading.get('confidence', 0.0)
-        },
-        "raw": {
-            "transcribe_status": transcribe_result.get('TranscriptionJobStatus'),
-            "rekognition_status": rekognition.get('status'),
-            "lipreading_note": lipreading.get('note', '')
+        transcribe_result = event.get("transcribe", {}).get("result", {})
+        rekognition = event.get("rekognition", {})
+        lipreading = event.get("lipreading", {})
+        media = event.get("media", {})
+
+        # Download full transcript from Transcribe
+        transcript_uri = transcribe_result.get('Transcript', {}).get('TranscriptFileUri')
+        transcribe_data = {}
+        if transcript_uri:
+            transcribe_data = download_transcript(transcript_uri)
+
+        # Get face detections
+        faces = rekognition.get("faces", [])
+        fps = media.get('fps', 25)
+
+        # Align speakers with face positions
+        aligned_segments = align_speakers_with_faces(transcribe_data, faces, fps)
+
+        # Fuse audio and visual information
+        fused_segments = fuse_audio_and_visual(aligned_segments, lipreading)
+
+        # Build final overlay data
+        fusion = {
+            "jobId": job_id,
+            "segments": fused_segments,
+            "metadata": {
+                "total_segments": len(fused_segments),
+                "speakers_detected": len(set(s.get('speaker') for s in fused_segments if 'speaker' in s)),
+                "faces_tracked": len(faces),
+                "lipreading_available": bool(lipreading.get('text')),
+                "lipreading_confidence": lipreading.get('confidence', 0.0)
+            },
+            "raw": {
+                "transcribe_status": transcribe_result.get('TranscriptionJobStatus'),
+                "rekognition_status": rekognition.get('status'),
+                "lipreading_note": lipreading.get('note', '')
+            }
         }
-    }
 
-    key = f"results/{job_id}/overlay.json"
-    s3.put_object(
-        Bucket=PROCESSED_BUCKET,
-        Key=key,
-        Body=json.dumps(fusion).encode('utf-8'),
-        ContentType='application/json'
-    )
+        key = f"results/{job_id}/overlay.json"
+        s3.put_object(
+            Bucket=PROCESSED_BUCKET,
+            Key=key,
+            Body=json.dumps(fusion, default=_decimalize).encode('utf-8'),
+            ContentType='application/json'
+        )
 
-    ddb.put_item(
-        TableName=JOBS_TABLE,
-        Item={
-            'jobId': {'S': job_id},
-            'resultKey': {'S': key},
-            'status': {'S': 'COMPLETED'}
-        }
-    )
+        ddb.put_item(
+            TableName=JOBS_TABLE,
+            Item={
+                'jobId': {'S': job_id},
+                'resultKey': {'S': key},
+                'status': {'S': 'COMPLETED'}
+            }
+        )
 
-    return {"processed": {"bucket": PROCESSED_BUCKET, "key": key}}
-
-    return {"processed": {"bucket": PROCESSED_BUCKET, "key": key}}
+        return {"processed": {"bucket": PROCESSED_BUCKET, "key": key}}
+    except Exception as e:
+        logger.error(f"Error fusing results: {e}", exc_info=True)
+        # Don't raise to avoid failing the entire pipeline; return partial result
+        return {"error": str(e)}

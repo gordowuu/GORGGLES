@@ -96,9 +96,23 @@ data "aws_iam_policy_document" "lambda_assume" {
   }
 }
 
+# Data source for VPC subnets (for Lambda VPC configuration)
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
 resource "aws_iam_role_policy_attachment" "basic_exec" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# VPC execution role for Lambda functions that need EC2 access
+resource "aws_iam_role_policy_attachment" "vpc_exec" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
 resource "aws_iam_role_policy" "pipeline_access" {
@@ -181,8 +195,19 @@ resource "aws_lambda_function" "extract_media" {
   runtime       = "python3.11"
   handler       = "handler.handler"
   filename      = data.archive_file.extract_media_zip.output_path
-  timeout       = 900
-  memory_size   = 1024
+  timeout       = 900  # 15 minutes for video processing
+  memory_size   = 2048  # Increased for video processing
+  
+  # Attach FFmpeg layer if available
+  layers = var.ffmpeg_layer_arn != "" ? [var.ffmpeg_layer_arn] : []
+  
+  environment {
+    variables = {
+      PROCESSED_BUCKET = aws_s3_bucket.processed.bucket
+      FFMPEG_PATH      = "/opt/bin/ffmpeg"  # Path in Lambda layer
+    }
+  }
+  
   tags = local.tags
 }
 
@@ -200,7 +225,15 @@ resource "aws_lambda_function" "start_transcribe" {
   runtime       = "python3.11"
   handler       = "handler.handler"
   filename      = data.archive_file.start_transcribe_zip.output_path
-  timeout       = 60
+  timeout       = 300  # 5 minutes for long transcription jobs
+  memory_size   = 512
+  
+  environment {
+    variables = {
+      PROCESSED_BUCKET = aws_s3_bucket.processed.bucket
+    }
+  }
+  
   tags = local.tags
 }
 
@@ -218,7 +251,15 @@ resource "aws_lambda_function" "start_rekognition" {
   runtime       = "python3.11"
   handler       = "handler.handler"
   filename      = data.archive_file.start_rekognition_zip.output_path
-  timeout       = 60
+  timeout       = 300  # 5 minutes for long rekognition jobs
+  memory_size   = 512
+  
+  environment {
+    variables = {
+      PROCESSED_BUCKET = aws_s3_bucket.processed.bucket
+    }
+  }
+  
   tags = local.tags
 }
 
@@ -236,8 +277,25 @@ resource "aws_lambda_function" "invoke_lipreading" {
   runtime       = "python3.11"
   handler       = "handler.handler"
   filename      = data.archive_file.invoke_lipreading_zip.output_path
-  timeout       = 120
+  timeout       = 600  # 10 minutes for lip reading inference
   memory_size   = 1024
+  
+  # Attach requests layer if available
+  layers = var.requests_layer_arn != "" ? [var.requests_layer_arn] : []
+  
+  # VPC configuration for EC2 access
+  vpc_config {
+    subnet_ids         = data.aws_subnets.default.ids
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+  
+  environment {
+    variables = {
+      AVHUBERT_ENDPOINT = var.avhubert_endpoint != "" ? var.avhubert_endpoint : "http://PLACEHOLDER:8000"
+      PROCESSED_BUCKET  = aws_s3_bucket.processed.bucket
+    }
+  }
+  
   tags = local.tags
 }
 
@@ -255,9 +313,25 @@ resource "aws_lambda_function" "fuse_results" {
   runtime       = "python3.11"
   handler       = "handler.handler"
   filename      = data.archive_file.fuse_results_zip.output_path
-  timeout       = 120
-  memory_size   = 512
-  environment { variables = { PROCESSED_BUCKET = aws_s3_bucket.processed.bucket, JOBS_TABLE = aws_dynamodb_table.jobs.name } }
+  timeout       = 300  # 5 minutes for result fusion
+  memory_size   = 1024
+  
+  # Attach requests layer if available
+  layers = var.requests_layer_arn != "" ? [var.requests_layer_arn] : []
+  
+  # VPC configuration for EC2 access (if needed)
+  vpc_config {
+    subnet_ids         = data.aws_subnets.default.ids
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+  
+  environment {
+    variables = {
+      PROCESSED_BUCKET = aws_s3_bucket.processed.bucket
+      JOBS_TABLE       = aws_dynamodb_table.jobs.name
+    }
+  }
+  
   tags = local.tags
 }
 
@@ -344,33 +418,102 @@ resource "aws_iam_role_policy" "sfn_invoke_lambdas" {
 
 locals {
   sfn_definition = jsonencode({
-    Comment = "Gorggle processing pipeline",
+    Comment = "Gorggle processing pipeline with retry logic",
     StartAt = "ExtractMedia",
     States = {
       ExtractMedia = {
         Type = "Task",
         Resource = aws_lambda_function.extract_media.arn,
-        Next     = "StartTranscribe"
+        Next     = "ParallelProcessing"
+        Retry = [{
+          ErrorEquals     = ["States.TaskFailed", "Lambda.ServiceException", "Lambda.TooManyRequestsException"]
+          IntervalSeconds = 2
+          MaxAttempts     = 3
+          BackoffRate     = 2.0
+        }]
+        Catch = [{
+          ErrorEquals = ["States.ALL"]
+          Next        = "ProcessingFailed"
+        }]
       },
-      StartTranscribe = {
-        Type     = "Task",
-        Resource = aws_lambda_function.start_transcribe.arn,
-        Next     = "StartRekognition"
-      },
-      StartRekognition = {
-        Type     = "Task",
-        Resource = aws_lambda_function.start_rekognition.arn,
-        Next     = "InvokeLipReading"
-      },
-      InvokeLipReading = {
-        Type     = "Task",
-        Resource = aws_lambda_function.invoke_lipreading.arn,
-        Next     = "FuseResults"
+      # Run Transcribe, Rekognition, and Lip Reading in parallel
+      ParallelProcessing = {
+        Type = "Parallel",
+        Branches = [
+          {
+            StartAt = "StartTranscribe",
+            States = {
+              StartTranscribe = {
+                Type = "Task",
+                Resource = aws_lambda_function.start_transcribe.arn,
+                End = true
+                Retry = [{
+                  ErrorEquals     = ["States.TaskFailed"]
+                  IntervalSeconds = 2
+                  MaxAttempts     = 2
+                  BackoffRate     = 2.0
+                }]
+              }
+            }
+          },
+          {
+            StartAt = "StartRekognition",
+            States = {
+              StartRekognition = {
+                Type = "Task",
+                Resource = aws_lambda_function.start_rekognition.arn,
+                End = true
+                Retry = [{
+                  ErrorEquals     = ["States.TaskFailed"]
+                  IntervalSeconds = 2
+                  MaxAttempts     = 2
+                  BackoffRate     = 2.0
+                }]
+              }
+            }
+          },
+          {
+            StartAt = "InvokeLipReading",
+            States = {
+              InvokeLipReading = {
+                Type = "Task",
+                Resource = aws_lambda_function.invoke_lipreading.arn,
+                End = true
+                Retry = [{
+                  ErrorEquals     = ["States.TaskFailed"]
+                  IntervalSeconds = 5
+                  MaxAttempts     = 2
+                  BackoffRate     = 2.0
+                }]
+              }
+            }
+          }
+        ]
+        Next = "FuseResults"
+        Catch = [{
+          ErrorEquals = ["States.ALL"]
+          Next        = "ProcessingFailed"
+        }]
       },
       FuseResults = {
         Type     = "Task",
         Resource = aws_lambda_function.fuse_results.arn,
         End      = true
+        Retry = [{
+          ErrorEquals     = ["States.TaskFailed"]
+          IntervalSeconds = 2
+          MaxAttempts     = 2
+          BackoffRate     = 2.0
+        }]
+        Catch = [{
+          ErrorEquals = ["States.ALL"]
+          Next        = "ProcessingFailed"
+        }]
+      },
+      ProcessingFailed = {
+        Type  = "Fail",
+        Error = "ProcessingError",
+        Cause = "One or more processing steps failed after retries"
       }
     }
   })
