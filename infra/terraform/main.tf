@@ -34,7 +34,11 @@ resource "aws_s3_bucket" "uploads" {
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
   bucket = aws_s3_bucket.uploads.id
-  rule { apply_server_side_encryption_by_default { sse_algorithm = "AES256" } }
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 resource "aws_s3_bucket" "processed" {
@@ -44,7 +48,11 @@ resource "aws_s3_bucket" "processed" {
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "processed" {
   bucket = aws_s3_bucket.processed.id
-  rule { apply_server_side_encryption_by_default { sse_algorithm = "AES256" } }
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 # Optional static website bucket
@@ -62,7 +70,10 @@ resource "aws_dynamodb_table" "jobs" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "jobId"
 
-  attribute { name = "jobId" type = "S" }
+  attribute {
+    name = "jobId"
+    type = "S"
+  }
   tags = local.tags
 }
 
@@ -78,7 +89,10 @@ resource "aws_iam_role" "lambda_exec" {
 data "aws_iam_policy_document" "lambda_assume" {
   statement {
     actions = ["sts:AssumeRole"]
-    principals { type = "Service" identifiers = ["lambda.amazonaws.com"] }
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
   }
 }
 
@@ -302,7 +316,10 @@ resource "aws_iam_role" "sfn_role" {
 data "aws_iam_policy_document" "sfn_assume" {
   statement {
     actions = ["sts:AssumeRole"]
-    principals { type = "Service" identifiers = ["states.amazonaws.com"] }
+    principals {
+      type        = "Service"
+      identifiers = ["states.amazonaws.com"]
+    }
   }
 }
 
