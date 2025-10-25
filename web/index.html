@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Groggle Viewer</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; background: #0b1220; color: #e8eefc; }
+    .container { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+    .stage { position: relative; }
+    video { width: 100%; border-radius: 8px; }
+    canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+    .controls { margin: 12px 0; display: flex; gap: 8px; align-items: center; }
+    input, button { padding: 8px 10px; border-radius: 6px; border: 1px solid #2a3555; background: #121a2f; color: #e8eefc; }
+    button { cursor: pointer; }
+    .legend { display: flex; gap: 12px; margin-top: 8px; font-size: 12px; color: #b8c2e0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Groggle Viewer</h1>
+    <p>Play your uploaded video and overlay fused captions per speaker.</p>
+
+    <div class="controls">
+      <label>Results API URL:
+        <input id="api" size="50" placeholder="https://xxxx.execute-api..." />
+      </label>
+      <label>Job ID:
+        <input id="job" size="20" placeholder="my-video" />
+      </label>
+      <label>Video URL:
+        <input id="vid" size="50" placeholder="https://s3.amazonaws.com/...mp4" />
+      </label>
+      <button id="load">Load</button>
+    </div>
+
+    <div class="stage">
+      <video id="video" controls crossorigin="anonymous"></video>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+
+    let overlayData = null;
+
+    function resizeCanvas() {
+      canvas.width = video.clientWidth;
+      canvas.height = video.clientHeight;
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    video.addEventListener('loadedmetadata', resizeCanvas);
+
+    function colorFor(i) {
+      const colors = ['#ff6b6b','#4dabf7','#51cf66','#ffd43b','#e599f7'];
+      return colors[i % colors.length];
+    }
+
+    function drawOverlay(time) {
+      if (!overlayData) return;
+      ctx.clearRect(0,0,canvas.width, canvas.height);
+
+      // Placeholder: draw static text
+      const text = overlayData?.notes || 'Overlay placeholder';
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(0, canvas.height - 60, canvas.width, 60);
+      ctx.fillStyle = '#fff';
+      ctx.font = '18px system-ui';
+      ctx.fillText(text, 16, canvas.height - 24);
+    }
+
+    video.addEventListener('timeupdate', () => drawOverlay(video.currentTime));
+
+    async function load() {
+      const api = document.getElementById('api').value.trim();
+      const job = document.getElementById('job').value.trim();
+      const vid = document.getElementById('vid').value.trim();
+      if (!api || !job || !vid) { alert('Fill API, Job ID, and Video URL'); return; }
+      video.src = vid;
+      const res = await fetch(`${api}/results/${encodeURIComponent(job)}`);
+      overlayData = await res.json();
+      drawOverlay(0);
+    }
+
+    document.getElementById('load').addEventListener('click', load);
+  </script>
+</body>
+</html>
