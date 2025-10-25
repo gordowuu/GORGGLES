@@ -23,6 +23,39 @@ AI-powered accessibility app that provides real-time transcription for deaf/hard
 - `lambdas/` — Python Lambda handlers for each pipeline step
 - `web/` — Minimal static viewer to render overlays
 
+## Credentials setup (Windows)
+
+Never commit keys to the repo. Use the AWS CLI credentials store so Terraform and the SDKs can read them automatically.
+
+Option A — Named profile (recommended):
+
+```powershell
+aws configure --profile gorggle-admin
+# Then for this terminal session:
+$env:AWS_PROFILE = "gorggle-admin"
+```
+
+Option B — Environment variables (session only):
+
+```powershell
+$env:AWS_ACCESS_KEY_ID = "<YOUR_ACCESS_KEY_ID>"
+$env:AWS_SECRET_ACCESS_KEY = "<YOUR_SECRET_ACCESS_KEY>"
+$env:AWS_DEFAULT_REGION = "us-east-1"
+# If using temporary credentials:
+# $env:AWS_SESSION_TOKEN = "<YOUR_SESSION_TOKEN>"
+```
+
+For SSO, run `aws configure sso --profile gorggle-sso` and set `$env:AWS_PROFILE = "gorggle-sso"`.
+
+## Terraform variables
+
+You can override defaults via a `terraform.tfvars` file. See `infra/terraform/terraform.tfvars.example`.
+
+- project_name: defaults to `gorggle`
+- region: defaults to `us-east-1`
+- environment: defaults to `dev`
+- enable_website: defaults to `false`
+
 ## Deploy (Terraform)
 
 Prereqs:
@@ -30,8 +63,9 @@ Prereqs:
 - AWS credentials configured (Administrator or required IAM privileges)
 
 Steps:
-1. Update variables in `infra/terraform/variables.tf` or via `terraform.tfvars`
-2. Initialize and apply:
+1. Optionally create `infra/terraform/terraform.tfvars` using the example
+2. Ensure `$env:AWS_PROFILE` (or environment variables) are set for your account
+3. Initialize and apply:
 
 ```powershell
 cd infra/terraform

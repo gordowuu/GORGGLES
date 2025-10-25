@@ -1,0 +1,6 @@
+# Copy this to terraform.tfvars and adjust as needed
+project_name   = "gorggle"
+region         = "us-east-1"
+environment    = "dev"
+# Set to true if you want to provision a static website bucket for hosting the viewer
+enable_website = false

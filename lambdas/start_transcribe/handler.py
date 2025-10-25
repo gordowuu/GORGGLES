@@ -14,7 +14,7 @@ def handler(event, context):
     key = input_obj.get("key")
 
     media_uri = f"s3://{bucket}/{key}"
-    t_job_name = f"groggle-{job_id}-{int(time.time())}"
+    t_job_name = f"gorggle-{job_id}-{int(time.time())}"
 
     transcribe.start_transcription_job(
         TranscriptionJobName=t_job_name,

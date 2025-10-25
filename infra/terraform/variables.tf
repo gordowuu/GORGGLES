@@ -1,4 +1,4 @@
-variable "project_name" { type = string  default = "groggle" }
+variable "project_name" { type = string  default = "gorggle" }
 variable "region"       { type = string  default = "us-east-1" }
 variable "environment"  { type = string  default = "dev" }
 

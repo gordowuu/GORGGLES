@@ -327,7 +327,7 @@ resource "aws_iam_role_policy" "sfn_invoke_lambdas" {
 
 locals {
   sfn_definition = jsonencode({
-    Comment = "Groggle processing pipeline",
+    Comment = "Gorggle processing pipeline",
     StartAt = "ExtractMedia",
     States = {
       ExtractMedia = {
