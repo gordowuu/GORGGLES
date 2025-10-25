@@ -3,49 +3,299 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Gorggle Viewer</title>
+  <title>Gorggle - AI Video Transcription</title>
   <style>
-    body { font-family: system-ui, Arial, sans-serif; background: #0b1220; color: #e8eefc; }
-    .container { max-width: 960px; margin: 24px auto; padding: 0 16px; }
-    .stage { position: relative; }
-    video { width: 100%; border-radius: 8px; }
-    canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
-    .controls { margin: 12px 0; display: flex; gap: 8px; align-items: center; }
-    input, button { padding: 8px 10px; border-radius: 6px; border: 1px solid #2a3555; background: #121a2f; color: #e8eefc; }
-    button { cursor: pointer; }
-    .legend { display: flex; gap: 12px; margin-top: 8px; font-size: 12px; color: #b8c2e0; }
+    body { 
+      font-family: system-ui, -apple-system, sans-serif; 
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #e8eefc; 
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      background: rgba(255,255,255,0.1);
+      backdrop-filter: blur(10px);
+      padding: 30px;
+      border-radius: 20px;
+    }
+    .header h1 {
+      font-size: 48px;
+      margin: 0 0 10px 0;
+      background: linear-gradient(135deg, #fff 0%, #e8eefc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .tab {
+      padding: 12px 24px;
+      background: rgba(255,255,255,0.1);
+      border: none;
+      border-radius: 10px;
+      color: white;
+      cursor: pointer;
+      font-size: 16px;
+      transition: all 0.3s;
+    }
+    .tab.active {
+      background: white;
+      color: #667eea;
+      font-weight: 600;
+    }
+    .tab:hover {
+      background: rgba(255,255,255,0.2);
+    }
+    .tab.active:hover {
+      background: white;
+    }
+    .panel {
+      display: none;
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .panel.active {
+      display: block;
+    }
+    .stage { position: relative; margin: 20px 0; }
+    video { width: 100%; border-radius: 12px; background: #000; }
+    canvas { position: absolute; top: 0; left: 0; pointer-events: none; border-radius: 12px; }
+    .controls { margin: 20px 0; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    input, button { 
+      padding: 12px 16px; 
+      border-radius: 8px; 
+      border: 1px solid #ddd; 
+      font-size: 14px;
+    }
+    input {
+      flex: 1;
+      min-width: 200px;
+    }
+    button { 
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      cursor: pointer; 
+      font-weight: 600;
+      transition: transform 0.2s;
+    }
+    button:hover {
+      transform: translateY(-2px);
+    }
+    .legend { display: flex; gap: 12px; margin-top: 12px; font-size: 13px; color: #666; flex-wrap: wrap; }
+    .upload-section {
+      text-align: center;
+      color: #333;
+    }
+    .upload-area {
+      border: 3px dashed #667eea;
+      border-radius: 15px;
+      padding: 60px 40px;
+      cursor: pointer;
+      transition: all 0.3s;
+      background: #f8f9ff;
+      margin: 20px 0;
+    }
+    .upload-area:hover {
+      border-color: #764ba2;
+      background: #f0f2ff;
+    }
+    .upload-icon { font-size: 72px; margin-bottom: 20px; }
+    .upload-text { font-size: 20px; color: #667eea; font-weight: 600; margin-bottom: 10px; }
+    .upload-hint { color: #999; font-size: 14px; }
+    .file-info {
+      display: none;
+      background: #f8f9ff;
+      padding: 20px;
+      border-radius: 10px;
+      margin: 20px 0;
+      text-align: left;
+      color: #333;
+    }
+    .file-info.show { display: block; }
+    .status {
+      display: none;
+      padding: 15px;
+      border-radius: 10px;
+      margin: 20px 0;
+    }
+    .status.show { display: block; }
+    .status.success { background: #d4edda; color: #155724; }
+    .status.error { background: #f8d7da; color: #721c24; }
+    .status.info { background: #d1ecf1; color: #0c5460; }
   </style>
 </head>
 <body>
   <div class="container">
-  <h1>Gorggle Viewer</h1>
-    <p>Play your uploaded video and overlay fused captions per speaker.</p>
-
-    <div class="controls">
-      <label>Results API URL:
-        <input id="api" size="50" placeholder="https://xxxx.execute-api..." />
-      </label>
-      <label>Job ID:
-        <input id="job" size="20" placeholder="my-video" />
-      </label>
-      <label>Video URL:
-        <input id="vid" size="50" placeholder="https://s3.amazonaws.com/...mp4" />
-      </label>
-      <button id="load">Load</button>
+    <div class="header">
+      <h1>🎬 Gorggle</h1>
+      <p>AI-Powered Audio & Visual Transcription with Speaker Diarization</p>
     </div>
 
-    <div class="stage">
-      <video id="video" controls crossorigin="anonymous"></video>
-      <canvas id="overlay"></canvas>
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('upload')">📤 Upload Video</button>
+      <button class="tab" onclick="switchTab('viewer')">🎥 View Results</button>
     </div>
 
-    <div class="legend" id="legend"></div>
+    <!-- Upload Panel -->
+    <div id="upload-panel" class="panel active">
+      <div class="upload-section">
+        <h2>Upload Your Video</h2>
+        <p>Upload a video file to process with AI transcription, lip reading, and speaker detection</p>
+
+        <div class="upload-area" id="uploadArea">
+          <div class="upload-icon">📹</div>
+          <div class="upload-text">Click to upload or drag & drop</div>
+          <div class="upload-hint">MP4, MOV, AVI files • Max 500MB</div>
+        </div>
+
+        <input type="file" id="fileInput" accept="video/*" style="display: none;">
+
+        <div class="file-info" id="fileInfo">
+          <div style="font-weight: 600; margin-bottom: 10px;">Selected File:</div>
+          <div id="fileName" style="color: #667eea; font-weight: 600;"></div>
+          <div id="fileSize" style="color: #999; margin-top: 5px;"></div>
+        </div>
+
+        <button id="uploadBtn" style="width: 100%; padding: 16px; font-size: 16px;" disabled>
+          Upload & Process Video
+        </button>
+
+        <div class="status" id="uploadStatus"></div>
+
+        <div style="margin-top: 30px; padding: 20px; background: #fff9e6; border-radius: 10px; border: 2px solid #ffd966; color: #856404;">
+          <strong>⚠️ Manual Upload Required</strong><br>
+          <p style="margin: 10px 0 0 0; font-size: 14px;">
+            To complete the upload, use the AWS CLI command shown above, or configure AWS credentials for browser upload.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Viewer Panel -->
+    <div id="viewer-panel" class="panel">
+      <h2 style="color: #333; margin-bottom: 20px;">View Processed Results</h2>
+      <p style="color: #666; margin-bottom: 20px;">Load your processed video with AI-generated captions and speaker overlays</p>
+
+      <div class="controls">
+        <input id="api" placeholder="API URL: https://xxxx.execute-api..." value="https://y9m2193c2i.execute-api.us-east-1.amazonaws.com" />
+        <input id="job" placeholder="Job ID" style="flex: 0.5;" />
+        <input id="vid" placeholder="Video URL: https://s3..." />
+        <button id="load">Load Results</button>
+      </div>
+
+      <div class="status" id="viewerStatus"></div>
+
+      <div class="stage">
+        <video id="video" controls crossorigin="anonymous"></video>
+        <canvas id="overlay"></canvas>
+      </div>
+
+      <div class="legend" id="legend"></div>
+    </div>
   </div>
 
   <script>
+    // Tab switching
+    function switchTab(tab) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      
+      if (tab === 'upload') {
+        document.querySelectorAll('.tab')[0].classList.add('active');
+        document.getElementById('upload-panel').classList.add('active');
+      } else {
+        document.querySelectorAll('.tab')[1].classList.add('active');
+        document.getElementById('viewer-panel').classList.add('active');
+      }
+    }
+
+    // Upload functionality
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadStatus = document.getElementById('uploadStatus');
+
+    let selectedFile = null;
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    function showUploadStatus(message, type) {
+      uploadStatus.textContent = message;
+      uploadStatus.className = 'status show ' + type;
+    }
+
+    function handleFileSelect(file) {
+      if (!file || !file.type.startsWith('video/')) {
+        showUploadStatus('Please select a valid video file', 'error');
+        return;
+      }
+
+      if (file.size > 500 * 1024 * 1024) {
+        showUploadStatus('File too large. Maximum size is 500MB', 'error');
+        return;
+      }
+
+      selectedFile = file;
+      fileName.textContent = file.name;
+      fileSize.textContent = formatBytes(file.size);
+      fileInfo.classList.add('show');
+      uploadBtn.disabled = false;
+      
+      const jobId = 'job-' + Date.now();
+      const bucket = 'gorggle-dev-uploads';
+      const command = `aws s3 cp "${file.name}" s3://${bucket}/uploads/${jobId}.mp4`;
+      
+      showUploadStatus(
+        `📋 To upload this video, run:\n\n${command}\n\nJob ID: ${jobId}`,
+        'info'
+      );
+    }
+
+    uploadArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0]));
+    
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.style.borderColor = '#764ba2';
+      uploadArea.style.background = '#e8ebff';
+    });
+    
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.style.borderColor = '#667eea';
+      uploadArea.style.background = '#f8f9ff';
+    });
+    
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.style.borderColor = '#667eea';
+      uploadArea.style.background = '#f8f9ff';
+      handleFileSelect(e.dataTransfer.files[0]);
+    });
+
+    // Viewer functionality (existing code)
     const video = document.getElementById('video');
     const canvas = document.getElementById('overlay');
     const ctx = canvas.getContext('2d');
+    const viewerStatus = document.getElementById('viewerStatus');
 
     let overlayData = null;
 

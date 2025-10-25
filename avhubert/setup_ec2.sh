@@ -29,11 +29,11 @@ apt-get install -y build-essential cmake git wget curl unzip \
 # Install CUDA and cuDNN (if not already installed)
 echo "[3/9] Checking CUDA installation..."
 if ! command -v nvcc &> /dev/null; then
-    echo "CUDA not found. Please install CUDA $CUDA_VERSION manually."
-    echo "Visit: https://developer.nvidia.com/cuda-downloads"
-    exit 1
+    echo "CUDA not found. Proceeding with CPU-only setup."
+    GPU_AVAILABLE=false
 else
     echo "CUDA found: $(nvcc --version | grep release)"
+    GPU_AVAILABLE=true
 fi
 
 # Install Miniconda
@@ -53,9 +53,14 @@ echo "[5/9] Creating conda environment..."
 conda create -n avhubert python=$PYTHON_VERSION -y
 source $INSTALL_DIR/miniconda/bin/activate avhubert
 
-# Install PyTorch with CUDA support
-echo "[6/9] Installing PyTorch with CUDA $CUDA_VERSION..."
-conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia -y
+# Install PyTorch
+if [ "$GPU_AVAILABLE" = true ]; then
+    echo "[6/9] Installing PyTorch with CUDA $CUDA_VERSION..."
+    conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia -y
+else
+    echo "[6/9] Installing CPU-only PyTorch..."
+    conda install pytorch torchvision torchaudio cpuonly -c pytorch -y
+fi
 
 # Install Python dependencies
 echo "[7/9] Installing Python dependencies..."
