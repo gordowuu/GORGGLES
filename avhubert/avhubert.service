@@ -1,0 +1,16 @@
+[Unit]
+Description=AV-HuBERT Lip Reading Server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/av_hubert
+Environment="MODEL_PATH=/home/ubuntu/av_hubert/models/large_vox_iter5.pt"
+Environment="PORT=8000"
+ExecStart=/home/ubuntu/miniconda3/bin/python /home/ubuntu/av_hubert/server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

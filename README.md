@@ -7,15 +7,25 @@ AI-powered accessibility app that provides real-time transcription for deaf/hard
 - Upload: User uploads MP4 with audio to an S3 bucket
 - Orchestration: S3 event triggers a Step Functions state machine
 - Processing steps:
-  1. Extract audio and frames (MediaConvert or placeholder) 
-  2. Transcribe audio with AWS Transcribe (speaker diarization enabled)
-  3. Detect/track faces with AWS Rekognition (video face detection)
-  4. Lip reading via AV-HuBERT (served on SageMaker endpoint; placeholder here)
-  5. Fusion logic combines audio + lip reading for best accuracy
-  6. Speaker labeling maps transcripts to detected faces and bounding boxes
-- Storage: Results JSON saved to S3 and indexes stored in DynamoDB
+  1. **Extract media**: FFmpeg extracts audio (WAV) and video frames (25 fps) to S3
+  2. **Transcribe audio**: AWS Transcribe processes the original MP4 with speaker diarization
+  3. **Detect faces**: AWS Rekognition tracks faces across the original MP4
+  4. **Lip reading**: AV-HuBERT model on EC2 GPU analyzes extracted frames for visual speech recognition
+  5. **Fusion**: Align and combine audio transcripts, face tracks, and lip reading for maximum accuracy
+  6. **Speaker labeling**: Map transcriptions to detected faces with spatial positioning
+- Storage: Results JSON saved to S3 and indexed in DynamoDB
 - API: API Gateway + Lambda to fetch results
-- Display: Static web UI (S3/CloudFront-ready) overlays color-coded speaker captions on the video
+- Display: Static web UI overlays color-coded speaker captions on video
+
+## Why AV-HuBERT?
+
+AV-HuBERT is state-of-the-art for audio-visual speech recognition:
+- Combines audio + visual (lip) features for superior accuracy
+- Pre-trained on LRS3 dataset (English lip reading)
+- Excels in noisy environments where audio-only fails
+- Handles multiple speakers, accents, and low-quality audio
+
+Deployment: EC2 GPU instance (g4dn.xlarge with NVIDIA T4) serving REST API
 
 ## Repo Layout
 
@@ -85,14 +95,59 @@ Upload an MP4 to the upload bucket under `uploads/` prefix. The pipeline will st
 
 Use the API URL output to fetch processed overlay JSON by `jobId` (the S3 object key is used as a jobId sans prefix). The web viewer can be pointed at your upload and jobId.
 
-## AV-HuBERT placeholder
+## AV-HuBERT Setup (EC2 GPU Instance)
 
-This repo scaffolds a SageMaker inference endpoint integration for lip reading but does not include the heavy model. Replace the placeholder with your model image/endpoint and update `invoke_lipreading` Lambda to call it.
+See `avhubert/README.md` for full deployment instructions.
+
+Quick summary:
+1. Launch EC2 g4dn.xlarge instance with Deep Learning AMI (Ubuntu)
+2. Install fairseq, av_hubert, and dependencies
+3. Download pre-trained model weights
+4. Deploy REST API server (`avhubert/server.py`)
+5. Update Lambda environment variable `AVHUBERT_ENDPOINT` with your EC2 endpoint URL
+
+Cost: ~$0.526/hour on-demand, or ~$0.16/hour with Spot instances
+
+## Lambda Requirements
+
+### extract_media Lambda
+**Critical**: Requires FFmpeg to extract audio and frames.
+
+Options:
+1. **Lambda Layer** (recommended): Use pre-built FFmpeg layer
+   - ARN: Search AWS SAR for "ffmpeg-lambda-layer" or build your own
+   - Add layer ARN to extract_media Lambda in Terraform
+   
+2. **Container Image**: Package Lambda as Docker image with FFmpeg
+   - More control, larger size
+   - See `lambdas/extract_media/Dockerfile` (to be added)
+
+3. **Alternative**: Use AWS Elemental MediaConvert
+   - More expensive but fully managed
+   - Replace extract_media Lambda with MediaConvert job submission
+
+### invoke_lipreading & fuse_results Lambdas
+Require `requests` library (not in Lambda runtime by default).
+
+To deploy with dependencies:
+```powershell
+cd lambdas/invoke_lipreading
+pip install -r requirements.txt -t .
+# Rezip and deploy via Terraform
+```
+
+Or use Lambda Layers for requests.
 
 ## Notes
-- Media extraction can be done via AWS Elemental MediaConvert. The `extract_media` Lambda is a placeholder to be replaced with MediaConvert submission or FFmpeg in a container/Lambda with EFS.
-- Rekognition video APIs operate directly on the uploaded MP4; frame extraction remains for lip reading.
-- Speaker diarization is enabled in Transcribe and then aligned to face tracks for spatial overlays.
+- **Extract media**: Currently needs FFmpeg Lambda Layer (not included). Add layer ARN to Terraform or use Container Image.
+- **Transcribe & Rekognition**: Work directly on MP4 files; no extraction needed for these services.
+- **AV-HuBERT**: Requires EC2 GPU setup. See `avhubert/` directory for deployment guide.
+- **Fusion logic**: Aligns audio transcripts with face tracks and lip reading. Can be enhanced with better time-window matching and confidence weighting.
+
+## Cost per 10-minute video
+- Processing: ~$0.44 (Transcribe $0.24, Rekognition $0.10, Lambda $0.003, EC2 $0.09)
+- Storage: ~$0.01/month
+- See `ARCHITECTURE.md` for detailed breakdown and optimization strategies
 
 ## Local Dev
 - Lambdas are plain Python 3.11 compatible
@@ -103,6 +158,11 @@ This repo scaffolds a SageMaker inference endpoint integration for lip reading b
 - S3 buckets have server-side encryption enabled
 
 ## Next steps
-- Swap lip reading placeholder to a real AV-HuBERT SageMaker endpoint
-- Replace extract placeholder with MediaConvert job + EventBridge callback
-- Add CloudFront for the static web app
+- **Add FFmpeg Lambda Layer**: Package FFmpeg for extract_media Lambda or use Container Image
+- **Deploy AV-HuBERT**: Set up EC2 GPU instance following `avhubert/README.md`
+- **Add requests to Lambdas**: Package dependencies or use Lambda Layer for invoke_lipreading and fuse_results
+- **Replace polling**: Use Step Functions callbacks + EventBridge instead of blocking Lambda polls
+- **Enhance fusion**: Implement sophisticated alignment algorithm for multi-speaker overlap scenarios
+- **Add CloudFront**: Serve web UI and video assets via CDN
+- **Authentication**: Add API Gateway authorizer or Cognito for production
+- **Monitoring**: Set up CloudWatch dashboards and alarms
