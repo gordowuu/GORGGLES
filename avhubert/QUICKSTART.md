@@ -70,19 +70,27 @@ This downloads:
 **MANUAL STEP REQUIRED**:
 
 1. Visit: http://facebookresearch.github.io/av_hubert
-2. Find "Large-scale English model" section
-3. Download **large_vox_iter5.pt** (~400MB) - RECOMMENDED
+2. Find **"Finetuned Models for Audio-Visual Speech Recognition"** section
+3. Download **Noise-Augmented AV-HuBERT Large** (LRS3 + VoxCeleb2 (En), LRS3-433h)
+   - File: `noise_large_lrs3vox_433h_avsr.pt` (~1GB)
+   - **This is the BEST model for real-world accessibility apps**
+   - Combines lip reading + audio, trained for noisy environments
+
 4. Transfer to EC2:
 
 ```bash
 # On your local machine (where you downloaded the file)
-scp -i your-key.pem large_vox_iter5.pt ubuntu@<ec2-ip>:/tmp/
+scp -i your-key.pem noise_large_lrs3vox_433h_avsr.pt ubuntu@<ec2-ip>:/tmp/
 
 # On EC2
-sudo mv /tmp/large_vox_iter5.pt /opt/avhubert/model.pt
+sudo mv /tmp/noise_large_lrs3vox_433h_avsr.pt /opt/avhubert/model.pt
 ```
 
-**Time**: ~5-10 minutes (depends on your internet speed)
+**Alternative (if Large is too slow):**
+- Download **Noise-Augmented AV-HuBERT Base** instead (~500MB)
+- File: `noise_base_lrs3vox_433h_avsr.pt`
+
+**Time**: ~10-20 minutes (depends on your internet speed)
 
 ### Step 7: Verify Files
 

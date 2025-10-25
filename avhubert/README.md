@@ -163,10 +163,40 @@ wget https://raw.githubusercontent.com/facebookresearch/av_hubert/main/avhubert/
 Visit the official model repository:
 **http://facebookresearch.github.io/av_hubert**
 
-Download one of:
-- **AV-HuBERT Base** (large_vox_iter5.pt) - ~400MB - RECOMMENDED
-- **AV-HuBERT Large** - ~1GB - Better accuracy, slower inference
-- **V-HuBERT** (visual-only) - ~400MB - For noisy/silent environments
+**🏆 RECOMMENDED FOR GORGGLE (Accessibility Application):**
+
+**Noise-Augmented AV-HuBERT Large** (LRS3 + VoxCeleb2, finetuned on LRS3-433h)
+- **Model Type:** Audio-Visual Speech Recognition (AVSR)
+- **Size:** ~1GB
+- **Why?** Best accuracy for real-world noisy environments, combines lip reading + audio
+- **File:** `noise_large_lrs3vox_433h_avsr.pt`
+- **Section:** "Finetuned Models for Audio-Visual Speech Recognition"
+
+**Alternative (Faster):**
+
+**Noise-Augmented AV-HuBERT Base** (LRS3 + VoxCeleb2, finetuned on LRS3-433h)
+- **Model Type:** Audio-Visual Speech Recognition (AVSR)
+- **Size:** ~500MB
+- **Why?** Good balance of speed and accuracy, still noise-robust
+- **File:** `noise_base_lrs3vox_433h_avsr.pt`
+
+**Available Model Categories:**
+
+1. **Pre-trained Models (No Finetuning)**
+   - Base/Large variants
+   - Use if you want to fine-tune on custom data
+   - ❌ Not recommended for production use
+
+2. **Finetuned Models for Visual Speech Recognition (VSR)**
+   - Lip reading only (ignores audio)
+   - 30h or 433h training data
+   - ❌ Not recommended - wastes audio information
+
+3. **Finetuned Models for Audio-Visual Speech Recognition (AVSR)** ✅
+   - **Noise-Augmented variants** - Best for real-world use
+   - Combines lip reading + audio
+   - Most robust to noise and partial occlusion
+   - ✅ **RECOMMENDED**
 
 Save the downloaded checkpoint as:
 ```bash

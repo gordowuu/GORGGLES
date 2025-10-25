@@ -30,45 +30,91 @@ wget -c https://raw.githubusercontent.com/facebookresearch/av_hubert/main/avhube
 echo "✓ Mean face downloaded: $INSTALL_DIR/mean_face.npy"
 
 # Download pre-trained AV-HuBERT model checkpoint
-echo "[4/4] Downloading AV-HuBERT Base model checkpoint..."
+echo "[4/4] Downloading AV-HuBERT model checkpoint..."
 echo ""
-echo "Please choose a model to download:"
-echo "1. AV-HuBERT Base (Audio-Visual, ~400MB) - RECOMMENDED"
-echo "2. AV-HuBERT Large (Audio-Visual, ~1GB) - Better accuracy"
-echo "3. V-HuBERT (Visual-only, ~400MB) - For silent/noisy environments"
+echo "Available Models from http://facebookresearch.github.io/av_hubert"
 echo ""
-read -p "Enter choice [1-3]: " choice
+echo "╔═══════════════════════════════════════════════════════════════════════╗"
+echo "║                    RECOMMENDED FOR GORGGLE                            ║"
+echo "╚═══════════════════════════════════════════════════════════════════════╝"
+echo ""
+echo "1. Noise-Augmented AV-HuBERT Large (LRS3+Vox, 433h) - BEST"
+echo "   • Audio-Visual (uses lip reading + audio)"
+echo "   • Noise-robust (trained for real-world noisy environments)"
+echo "   • Highest accuracy (~1GB)"
+echo ""
+echo "2. Noise-Augmented AV-HuBERT Base (LRS3+Vox, 433h) - FAST"
+echo "   • Audio-Visual (uses lip reading + audio)"
+echo "   • Noise-robust, faster inference (~500MB)"
+echo ""
+echo "╔═══════════════════════════════════════════════════════════════════════╗"
+echo "║                    VISUAL-ONLY (LIP READING)                          ║"
+echo "╚═══════════════════════════════════════════════════════════════════════╝"
+echo ""
+echo "3. AV-HuBERT Large (LRS3+Vox, 433h VSR) - Visual-only"
+echo "   • Lip reading only (ignores audio)"
+echo "   • Use if audio is completely unavailable (~1GB)"
+echo ""
+echo "4. AV-HuBERT Base (LRS3+Vox, 433h VSR) - Visual-only, faster"
+echo "   • Lip reading only, faster inference (~500MB)"
+echo ""
+read -p "Enter choice [1-4]: " choice
 
 case $choice in
     1)
-        echo "Downloading AV-HuBERT Base..."
-        # Visit http://facebookresearch.github.io/av_hubert to get the actual download link
+        MODEL_NAME="Noise-Augmented AV-HuBERT Large (AVSR, 433h)"
+        MODEL_FILE="noise_large_lrs3vox_433h_avsr.pt"
         echo ""
-        echo "Please manually download the AV-HuBERT Base checkpoint from:"
-        echo "http://facebookresearch.github.io/av_hubert"
+        echo "Selected: $MODEL_NAME"
         echo ""
-        echo "Look for: 'large_vox_iter5.pt' or similar"
-        echo "Save it to: $INSTALL_DIR/model.pt"
+        echo "This model provides the BEST accuracy for real-world accessibility."
+        echo "It combines lip reading with audio and handles noisy environments."
         ;;
     2)
-        echo "Downloading AV-HuBERT Large..."
+        MODEL_NAME="Noise-Augmented AV-HuBERT Base (AVSR, 433h)"
+        MODEL_FILE="noise_base_lrs3vox_433h_avsr.pt"
         echo ""
-        echo "Please manually download the AV-HuBERT Large checkpoint from:"
-        echo "http://facebookresearch.github.io/av_hubert"
-        echo "Save it to: $INSTALL_DIR/model.pt"
+        echo "Selected: $MODEL_NAME"
+        echo ""
+        echo "Good balance of speed and accuracy for noisy environments."
         ;;
     3)
-        echo "Downloading V-HuBERT..."
+        MODEL_NAME="AV-HuBERT Large (VSR, 433h)"
+        MODEL_FILE="large_lrs3vox_433h_vsr.pt"
         echo ""
-        echo "Please manually download the V-HuBERT checkpoint from:"
-        echo "http://facebookresearch.github.io/av_hubert"
-        echo "Save it to: $INSTALL_DIR/model.pt"
+        echo "Selected: $MODEL_NAME"
+        echo ""
+        echo "Visual-only lip reading (ignores audio)."
+        ;;
+    4)
+        MODEL_NAME="AV-HuBERT Base (VSR, 433h)"
+        MODEL_FILE="base_lrs3vox_433h_vsr.pt"
+        echo ""
+        echo "Selected: $MODEL_NAME"
+        echo ""
+        echo "Faster visual-only lip reading."
         ;;
     *)
         echo "Invalid choice. Please run the script again."
         exit 1
         ;;
 esac
+
+echo ""
+echo "════════════════════════════════════════════════════════════════════════"
+echo "MANUAL DOWNLOAD REQUIRED"
+echo "════════════════════════════════════════════════════════════════════════"
+echo ""
+echo "1. Visit: http://facebookresearch.github.io/av_hubert"
+echo ""
+echo "2. Find and download: $MODEL_FILE"
+echo "   (Look in 'Finetuned Models for Audio-Visual Speech Recognition' section)"
+echo ""
+echo "3. Save it as: $INSTALL_DIR/model.pt"
+echo ""
+echo "Example download command (if direct URL available):"
+echo "  wget -O $INSTALL_DIR/model.pt <DOWNLOAD_URL>"
+echo ""
 
 echo ""
 echo "======================================"

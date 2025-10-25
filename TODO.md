@@ -14,19 +14,31 @@
 
 ### 1. Download AV-HuBERT Model (MANUAL - Most Important!)
 
-**Why manual?** The model (~400MB) requires you to visit the official site and accept terms.
+**Why manual?** The model (~400MB-1GB) requires you to visit the official site and accept terms.
+
+**RECOMMENDED MODEL FOR GORGGLE:**
+- **Noise-Augmented AV-HuBERT Large (LRS3+VoxCeleb2, finetuned on LRS3-433h)**
+- This is an **Audio-Visual** model (uses both lip reading + audio)
+- **Noise-augmented** = trained specifically for noisy/real-world environments
+- **Best accuracy** for accessibility applications
 
 **Steps:**
 1. Visit: http://facebookresearch.github.io/av_hubert
-2. Scroll to "Large-scale English model" section
-3. Download **large_vox_iter5.pt** (recommended) or **base_vox_iter5.pt**
+2. Scroll to **"Finetuned Models for Audio-Visual Speech Recognition"**
+3. Download: **"Noise-Augmented AV-HuBERT Large (LRS3 + VoxCeleb2 (En), LRS3-433h)"**
+   - File: `noise_large_lrs3vox_433h_avsr.pt` (~1GB)
 4. Keep this file - you'll upload it to EC2 in Step 2
 
-**Direct link** (if available):
-- Try: https://dl.fbaipublicfiles.com/avhubert/model/lrs3_vox/large_vox_iter5.pt
-- Or browse: http://facebookresearch.github.io/av_hubert
+**Alternative (if Large is too slow):**
+- **Noise-Augmented AV-HuBERT Base (LRS3+VoxCeleb2, LRS3-433h)** (~500MB)
+- File: `noise_base_lrs3vox_433h_avsr.pt`
 
-**Time estimate:** 5-10 minutes (depends on your internet speed)
+**NOT Recommended (unless specific use case):**
+- ❌ Visual-only models (VSR) - Wastes audio data, lower accuracy
+- ❌ Pre-trained models without finetuning - Need additional training
+- ❌ 30h models - Less training data = lower accuracy
+
+**Time estimate:** 10-20 minutes (depends on your internet speed)
 
 ---
 
