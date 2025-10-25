@@ -1,4 +1,4 @@
-# Groggle (GORGGLES2)
+# Gorggle (GORGGLES2)
 
 AI-powered accessibility app that provides real-time transcription for deaf/hard-of-hearing users by combining audio transcription and AI-powered lip reading with multi-speaker identification and focus mode.
 
