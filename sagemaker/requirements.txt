@@ -1,0 +1,9 @@
+# Additional deps for AV-HuBERT serving in SageMaker PyTorch container
+# Note: The container already has torch/torchvision/torchaudio, numpy, boto3.
+# We avoid re-specifying torch packages to prevent version conflicts.
+
+opencv-python-headless==4.8.1.78
+fairseq==0.12.2
+sentencepiece==0.1.99
+scipy==1.11.3
+soundfile==0.12.1

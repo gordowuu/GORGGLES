@@ -291,7 +291,8 @@ resource "aws_lambda_function" "invoke_lipreading" {
   
   environment {
     variables = {
-      AVHUBERT_ENDPOINT = var.avhubert_endpoint != "" ? var.avhubert_endpoint : "http://PLACEHOLDER:8000"
+  AVHUBERT_ENDPOINT = var.avhubert_endpoint  # Empty string when not using EC2; SageMaker takes precedence
+      SAGEMAKER_ENDPOINT = var.sagemaker_endpoint_name != "" ? var.sagemaker_endpoint_name : ""
       PROCESSED_BUCKET  = aws_s3_bucket.processed.bucket
     }
   }
@@ -351,6 +352,32 @@ resource "aws_lambda_function" "get_results" {
   filename      = data.archive_file.get_results_zip.output_path
   timeout       = 30
   environment { variables = { PROCESSED_BUCKET = aws_s3_bucket.processed.bucket, JOBS_TABLE = aws_dynamodb_table.jobs.name } }
+  tags = local.tags
+}
+
+# Upload URL Lambda (pre-signed S3 PUT)
+
+data "archive_file" "get_upload_url_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../lambdas/get_upload_url"
+  output_path = "${path.module}/../../dist/get_upload_url.zip"
+}
+
+resource "aws_lambda_function" "get_upload_url" {
+  function_name = "${local.name}-get-upload-url"
+  role          = aws_iam_role.lambda_exec.arn
+  runtime       = "python3.11"
+  handler       = "handler.handler"
+  filename      = data.archive_file.get_upload_url_zip.output_path
+  timeout       = 15
+  memory_size   = 256
+
+  environment {
+    variables = {
+      UPLOADS_BUCKET = aws_s3_bucket.uploads.bucket
+    }
+  }
+
   tags = local.tags
 }
 
@@ -547,16 +574,37 @@ resource "aws_apigatewayv2_integration" "get_results" {
   payload_format_version = "2.0"
 }
 
+resource "aws_apigatewayv2_integration" "get_upload_url" {
+  api_id                 = aws_apigatewayv2_api.results_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.get_upload_url.invoke_arn
+  payload_format_version = "2.0"
+}
+
 resource "aws_apigatewayv2_route" "get_results" {
   api_id    = aws_apigatewayv2_api.results_api.id
   route_key = "GET /results/{jobId}"
   target    = "integrations/${aws_apigatewayv2_integration.get_results.id}"
 }
 
+resource "aws_apigatewayv2_route" "post_upload_url" {
+  api_id    = aws_apigatewayv2_api.results_api.id
+  route_key = "POST /upload-url"
+  target    = "integrations/${aws_apigatewayv2_integration.get_upload_url.id}"
+}
+
 resource "aws_lambda_permission" "allow_apigw_to_invoke" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.get_results.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.results_api.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "allow_apigw_to_invoke_upload" {
+  statement_id  = "AllowAPIGatewayInvokeUpload"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_upload_url.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.results_api.execution_arn}/*/*"
 }

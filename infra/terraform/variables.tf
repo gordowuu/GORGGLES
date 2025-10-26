@@ -32,3 +32,10 @@ variable "avhubert_endpoint" {
   default     = ""  # Will be set by deploy_ec2.sh
 }
 
+# SageMaker endpoint name for AV-HuBERT (alternative to EC2 server)
+variable "sagemaker_endpoint_name" {
+  type        = string
+  description = "SageMaker real-time endpoint name for AV-HuBERT (e.g., 'gorggle-avhubert-ep')"
+  default     = ""
+}
+

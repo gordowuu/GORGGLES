@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import boto3
 import logging
 
 logger = logging.getLogger()
@@ -8,7 +9,10 @@ logger.setLevel(logging.INFO)
 
 # Call AV-HuBERT server on EC2 GPU instance via HTTP
 AVHUBERT_ENDPOINT = os.environ.get("AVHUBERT_ENDPOINT", "")  # e.g., http://ec2-xx-xx-xx-xx.compute.amazonaws.com:8000
+SAGEMAKER_ENDPOINT = os.environ.get("SAGEMAKER_ENDPOINT", "")  # e.g., gorggle-avhubert-ep
 TIMEOUT = int(os.environ.get("TIMEOUT", "300"))  # 5 minutes for video processing
+
+smrt = boto3.client("sagemaker-runtime") if SAGEMAKER_ENDPOINT else None
 
 
 def handler(event, context):
@@ -16,8 +20,8 @@ def handler(event, context):
     Invoke AV-HuBERT lip reading model hosted on EC2 GPU instance.
     Sends frames S3 location to the server which downloads, processes, and returns predictions.
     """
-    if not AVHUBERT_ENDPOINT:
-        logger.warning("AVHUBERT_ENDPOINT not configured, skipping lip reading")
+    if not (SAGEMAKER_ENDPOINT or AVHUBERT_ENDPOINT):
+        logger.warning("No AV-HuBERT endpoint configured (SageMaker or EC2). Skipping lip reading.")
         return {**event, "lipreading": {"segments": [], "text": "", "note": "Endpoint not configured"}}
     
     media = event.get("media", {})
@@ -47,23 +51,32 @@ def handler(event, context):
         logger.info(f"Using fallback: server will extract from s3://{bucket}/{key}")
     
     try:
-        logger.info(f"Calling AV-HuBERT endpoint: {AVHUBERT_ENDPOINT}/predict")
-        response = requests.post(
-            f"{AVHUBERT_ENDPOINT}/predict",
-            json=payload,
-            timeout=TIMEOUT
-        )
-        response.raise_for_status()
-        result = response.json()
-        
+        if SAGEMAKER_ENDPOINT:
+            logger.info(f"Invoking SageMaker endpoint: {SAGEMAKER_ENDPOINT}")
+            sm_resp = smrt.invoke_endpoint(
+                EndpointName=SAGEMAKER_ENDPOINT,
+                ContentType="application/json",
+                Accept="application/json",
+                Body=json.dumps(payload).encode("utf-8")
+            )
+            body = sm_resp["Body"].read().decode("utf-8")
+            result = json.loads(body)
+        else:
+            logger.info(f"Calling AV-HuBERT EC2 endpoint: {AVHUBERT_ENDPOINT}/predict")
+            response = requests.post(
+                f"{AVHUBERT_ENDPOINT}/predict",
+                json=payload,
+                timeout=TIMEOUT
+            )
+            response.raise_for_status()
+            result = response.json()
+
         logger.info(f"Lip reading result: {result.get('text', '')[:100]}...")
-        
         return {**event, "lipreading": result}
-    
+
     except requests.exceptions.Timeout:
-        logger.error(f"Timeout calling AV-HuBERT endpoint after {TIMEOUT}s")
+        logger.error(f"Timeout calling AV-HuBERT EC2 endpoint after {TIMEOUT}s")
         return {**event, "lipreading": {"segments": [], "text": "", "error": "Timeout"}}
-    
     except Exception as e:
-        logger.error(f"Error calling AV-HuBERT endpoint: {e}")
+        logger.error(f"Error invoking AV-HuBERT: {e}")
         return {**event, "lipreading": {"segments": [], "text": "", "error": str(e)}}

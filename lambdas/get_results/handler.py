@@ -5,7 +5,13 @@ import boto3
 def response(body: dict, status: int = 200):
     return {
         "statusCode": status,
-        "headers": {"Content-Type": "application/json"},
+        "headers": {
+            "Content-Type": "application/json",
+            # CORS headers for browser access
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET,OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+        },
         "body": json.dumps(body)
     }
 

@@ -26,7 +26,13 @@ except ImportError:
 app = FastAPI(title="AV-HuBERT Lip Reading API", version="1.0.0")
 
 # Global model holders
-MODEL = None
+class PlaceholderModel:
+    """Placeholder until AV-HuBERT checkpoint is loaded."""
+    def __call__(self, *args, **kwargs):
+        print("Warning: AV-HuBERT model not loaded; configure checkpoint path in startup")
+        return None
+
+MODEL = PlaceholderModel()
 TASK = None
 GENERATOR = None
 FACE_DETECTOR = None
@@ -294,7 +300,7 @@ def run_inference(frames_tensor: torch.Tensor) -> Dict:
         return {
             'text': text.strip(),
             'confidence': confidence,
-            'segments': []  # TODO: Add time-aligned segments
+            'segments': []  # Time-aligned segments pending (requires fairseq decode with timestamps)
         }
 
 

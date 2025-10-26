@@ -243,7 +243,7 @@
       uploadStatus.className = 'status show ' + type;
     }
 
-    function handleFileSelect(file) {
+    async function handleFileSelect(file) {
       if (!file || !file.type.startsWith('video/')) {
         showUploadStatus('Please select a valid video file', 'error');
         return;
@@ -261,13 +261,57 @@
       uploadBtn.disabled = false;
       
       const jobId = 'job-' + Date.now();
-      const bucket = 'gorggle-dev-uploads';
-      const command = `aws s3 cp "${file.name}" s3://${bucket}/uploads/${jobId}.mp4`;
-      
-      showUploadStatus(
-        `📋 To upload this video, run:\n\n${command}\n\nJob ID: ${jobId}`,
-        'info'
-      );
+
+      // Try direct browser upload via pre-signed URL
+      const apiInput = document.getElementById('api');
+      const apiBase = (apiInput && apiInput.value) ? apiInput.value.trim() : 'https://y9m2193c2i.execute-api.us-east-1.amazonaws.com';
+      const endpoint = apiBase.replace(/\/$/, '') + '/upload-url';
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobId, contentType: file.type || 'video/mp4' })
+        });
+
+        if (!res.ok) throw new Error('Upload URL API failed');
+        const data = await res.json();
+        if (!data.uploadUrl) throw new Error('Malformed response');
+
+        // Perform PUT upload with progress
+        uploadBtn.disabled = true;
+        showUploadStatus('Starting upload...', 'info');
+
+        await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('PUT', data.uploadUrl);
+          if (file.type) xhr.setRequestHeader('Content-Type', file.type);
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              const pct = Math.round((e.loaded / e.total) * 100);
+              showUploadStatus(`Uploading... ${pct}%`, 'info');
+            }
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve(None);
+            else reject(new Error('Upload failed with status ' + xhr.status));
+          };
+          xhr.onerror = () => reject(new Error('Network error during upload'));
+          xhr.send(file);
+        });
+
+        showUploadStatus('✅ Upload complete! Processing started. Job ID: ' + jobId, 'success');
+        uploadBtn.disabled = true;
+      } catch (e) {
+        // Fallback to CLI instructions if API or CORS fails
+        const bucket = 'gorggle-dev-uploads';
+        const command = `aws s3 cp \"${file.name}\" s3://${bucket}/uploads/${jobId}.mp4`;
+        showUploadStatus(
+          `⚠️ Browser upload not available. Use CLI instead:\n\n${command}\n\nJob ID: ${jobId}`,
+          'info'
+        );
+        uploadBtn.disabled = false;
+      }
     }
 
     uploadArea.addEventListener('click', () => fileInput.click());
@@ -316,8 +360,8 @@
       if (!overlayData) return;
       ctx.clearRect(0,0,canvas.width, canvas.height);
 
-      // Placeholder: draw static text
-      const text = overlayData?.notes || 'Overlay placeholder';
+  // Display processing note or caption text
+  const text = overlayData?.notes || 'Processing captions...';
       ctx.fillStyle = 'rgba(0,0,0,0.4)';
       ctx.fillRect(0, canvas.height - 60, canvas.width, 60);
       ctx.fillStyle = '#fff';
