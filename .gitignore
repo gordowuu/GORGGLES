@@ -34,3 +34,5 @@ Thumbs.db
 models/
 lambda_layers/
 infra/terraform/layer_arns.auto.tfvars
+sagemaker/checkpoints/
+*.tar.gz

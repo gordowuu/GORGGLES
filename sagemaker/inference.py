@@ -122,13 +122,31 @@ def model_fn(model_dir):
                 logger.warning(f"Vendored avhubert package not found at {avhubert_pkg}; checkpoint loading may fail")
             from fairseq import checkpoint_utils
             from fairseq.dataclass.utils import convert_namespace_to_omegaconf
+            from omegaconf import open_dict
 
             logger.info(f"Loading AV-HuBERT from {CHECKPOINT_PATH} ...")
-            models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task([CHECKPOINT_PATH])
+            
+            # Use arg_overrides to set missing config keys
+            arg_overrides = {
+                'task.input_modality': 'video',  # Override missing key for video-only lip reading
+            }
+            
+            models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task(
+                [CHECKPOINT_PATH],
+                arg_overrides=arg_overrides
+            )
+            logger.info("Model loaded with arg_overrides: task.input_modality='video'")
+            
             model = models[0]
             model.eval()
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             model.to(device)
+
+            # Patch task.cfg for build_generator if needed
+            if hasattr(task, 'cfg') and not hasattr(task.cfg, 'input_modality'):
+                with open_dict(task.cfg):
+                    task.cfg.input_modality = 'video'
+                    logger.info("Patched task.cfg.input_modality='video'")
 
             # Build generator
             cfg = convert_namespace_to_omegaconf(saved_cfg)
