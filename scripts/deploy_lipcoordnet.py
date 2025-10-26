@@ -39,16 +39,22 @@ def main():
     sagemaker_session = sagemaker.Session()
     
     # Configuration for HuggingFace model from Hub
+    # Model weights will be loaded from Hub, but we use custom inference code
     hub_config = {
         'HF_MODEL_ID': 'SilentSpeak/LipCoordNet',  # Model ID from HuggingFace Hub
         'HF_TASK': 'custom',  # Custom task (not a standard transformers pipeline)
     }
     
+    # Model artifact with custom inference.py and requirements.txt
+    model_data = 's3://gorggle-dev-uploads/sagemaker-models/model-lipcoordnet.tar.gz'
+    
     # Create HuggingFace Model
-    print(f"\nCreating HuggingFaceModel...")
+    print(f"\nCreating HuggingFaceModel with custom inference code...")
+    print(f"  Model data: {model_data}")
     
     huggingface_model = HuggingFaceModel(
-        env=hub_config,
+        model_data=model_data,  # Our custom inference code + requirements
+        env=hub_config,  # Hub config to load model weights
         role=args.role_arn,
         transformers_version='4.49.0',  # Use latest supported version
         pytorch_version='2.6.0',  # Match required PyTorch version
