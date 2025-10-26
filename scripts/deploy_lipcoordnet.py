@@ -6,6 +6,7 @@ import argparse
 from sagemaker.huggingface import HuggingFaceModel
 import sagemaker
 import boto3
+from datetime import datetime
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Deploy LipCoordNet to SageMaker')
@@ -27,6 +28,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+    
+    # Generate unique config name with timestamp to avoid conflicts
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+    config_name = f"{args.endpoint_name}-{timestamp}"
     
     print(f"Deploying LipCoordNet endpoint: {args.endpoint_name}")
     print(f"  Model: SilentSpeak/LipCoordNet from HuggingFace Hub")
@@ -64,6 +69,7 @@ def main():
     
     # Deploy the model
     print(f"\nDeploying endpoint: {args.endpoint_name}")
+    print(f"  Config name: {config_name}")
     if args.update:
         print("Update mode: will update existing endpoint")
     
@@ -72,6 +78,7 @@ def main():
             initial_instance_count=args.instance_count,
             instance_type=args.instance_type,
             endpoint_name=args.endpoint_name,
+            endpoint_config_name=config_name,  # Use unique config name
             update_endpoint=args.update
         )
         
