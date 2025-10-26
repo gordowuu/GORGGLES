@@ -1,4 +1,4 @@
-# Gorggle (GORGGLES2)
+# Gorggle
 
 🎬 **AI-powered video transcription platform** combining **audio transcription**, **AI lip reading**, and **speaker diarization** for accessible, accurate video captions.
 
