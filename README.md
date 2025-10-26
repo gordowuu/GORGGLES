@@ -7,11 +7,11 @@
 ## ✨ Features
 
 - 🎤 **Audio Transcription**: AWS Transcribe with speaker diarization
-- 👄 **AI Lip Reading**: AV-HuBERT visual speech recognition
+- 👄 **AI Lip Reading**: LipCoordNet visual speech recognition via SageMaker
 - 👤 **Face Detection**: AWS Rekognition face tracking
 - 🎯 **Speaker Fusion**: Intelligent alignment of audio + visual + face data
 - 🌐 **Web Interface**: Modern drag-&-drop upload + caption viewer
-- ⚡ **GPU-Accelerated**: Fast inference on NVIDIA GPUs
+- ⚡ **GPU-Accelerated**: Fast inference on SageMaker Serverless
 - 🏗️ **Serverless Pipeline**: AWS Lambda + Step Functions orchestration
 
 ---
@@ -44,30 +44,34 @@ terraform init
 terraform apply
 ```
 
-### 3. Launch EC2 Instance
-
-**Via AWS Console (Recommended):**
-
-See **[MANUAL_EC2_DEPLOYMENT.md](MANUAL_EC2_DEPLOYMENT.md)** for detailed guide.
-
-**Quick Settings:**
-- **AMI**: `ami-0ac1f653c5b6af751` (Deep Learning GPU PyTorch 2.1.0)
-- **Type**: `g6.xlarge` (NVIDIA L4, 4 vCPU, 16GB RAM)
-- **Key**: `gorggle-key`
-- **Security Group**: `gorggle-ec2-sg`
-
-### 4. Deploy Server to EC2
+### 3. Build and Deploy LipCoordNet Model
 
 ```powershell
-.\scripts\deploy_to_manual_ec2.ps1 -InstanceIp "YOUR_PUBLIC_IP"
+# Build model artifact
+python scripts/build_lipcoordnet_artifact.py
+
+# Upload to S3
+aws s3 cp artifacts/model-lipcoordnet.tar.gz s3://gorggle-dev-uploads/sagemaker-models/
+
+# Deploy SageMaker endpoint
+python scripts/deploy_lipcoordnet.py `
+  --endpoint-name gorggle-lipcoordnet-dev `
+  --role-arn arn:aws:iam::YOUR_ACCOUNT:role/service-role/AmazonSageMaker-ExecutionRole `
+  --instance-type ml.g5.xlarge
 ```
 
-### 5. Test Your Pipeline
+### 4. Test the Endpoint
 
 ```powershell
-# Upload a video
-aws s3 cp test-video.mp4 s3://gorggle-dev-uploads/uploads/job-001.mp4
+# Test with video from S3
+python scripts/test_lipcoordnet_endpoint.py `
+  --video-bucket gorggle-dev-uploads `
+  --video-key test-video.mov
+```
 
+### 5. Open Web Interface
+
+```powershell
 # Open web interface
 start web\index.html
 ```
@@ -78,9 +82,8 @@ start web\index.html
 
 | Document | Description |
 |----------|-------------|
-| **[MANUAL_EC2_DEPLOYMENT.md](MANUAL_EC2_DEPLOYMENT.md)** | Step-by-step EC2 setup via AWS Console |
-| **[DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)** | Pre-flight checks and validation |
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | System design and data flow |
+| **[DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)** | Pre-flight checks and validation |
 | **[web/README.md](web/README.md)** | Frontend usage guide |
 | **[TODO.md](TODO.md)** | Roadmap and pending tasks |
 
@@ -118,9 +121,9 @@ start web\index.html
 │           │                │                        │
 │           ▼                │                        │
 │  ┌──────────────────────┐ │                        │
-│  │  AV-HuBERT Server    │ │                        │
-│  │  (Lip Reading GPU)   │ │                        │
-│  │  EC2 g6.xlarge       │ │                        │
+│  │  LipCoordNet         │ │                        │
+│  │  SageMaker Serverless│ │                        │
+│  │  (GPU Inference)     │ │                        │
 │  └────────┬─────────────┘ │                        │
 │           │                │                        │
 │           └────────────────┴───────────┐            │
@@ -153,16 +156,19 @@ start web\index.html
 
 ---
 
-## 🎯 Why AV-HuBERT?
+## 🎯 Why LipCoordNet?
 
-**AV-HuBERT** is state-of-the-art for audio-visual speech recognition:
+**LipCoordNet** is a state-of-the-art visual speech recognition model:
 
-✅ Combines audio + visual (lip) features for superior accuracy  
-✅ Pre-trained on LRS3 dataset (English lip reading)  
-✅ Excels in noisy environments where audio-only fails  
-✅ Handles multiple speakers, accents, and low-quality audio  
+✅ Trained on GRID corpus for high-accuracy lip reading  
+✅ Lightweight and fast inference (optimized for production)  
+✅ Works with 128×64 mouth ROI crops  
+✅ Pre-trained weights available on HuggingFace  
+✅ Integrates seamlessly with AWS SageMaker  
 
-**Deployment:** EC2 GPU instance (g6.xlarge with NVIDIA L4) serving REST API
+**Deployment:** Serverless SageMaker inference endpoints with auto-scaling
+
+**Model:** [SilentSpeak/LipCoordNet](https://huggingface.co/SilentSpeak/LipCoordNet) on HuggingFace
 
 ---
 
@@ -171,16 +177,14 @@ start web\index.html
 ```
 GORGGLES2/
 ├── 📄 README.md                          # You are here
-├── 📄 MANUAL_EC2_DEPLOYMENT.md           # AWS Console deployment guide
-├── 📄 DEPLOYMENT_CHECKLIST.md            # Pre-deployment validation
 ├── 📄 ARCHITECTURE.md                    # System design details
+├── 📄 DEPLOYMENT_CHECKLIST.md            # Pre-deployment validation
 ├── 📄 TODO.md                            # Roadmap
 │
-├── 📂 avhubert/                          # AV-HuBERT server
-│   ├── server.py                         # FastAPI inference server
-│   ├── setup_ec2.sh                      # EC2 environment setup
-│   ├── download_models.sh                # Model downloader
-│   └── requirements-server.txt           # Python dependencies
+├── 📂 sagemaker/                         # SageMaker model deployment
+│   ├── inference_lipcoordnet.py          # Custom inference handler
+│   ├── requirements_lipcoordnet.txt      # Model dependencies
+│   └── container/                        # Docker container (optional)
 │
 ├── 📂 infra/terraform/                   # Infrastructure as Code
 │   ├── main.tf                           # Core resources
@@ -190,7 +194,7 @@ GORGGLES2/
 │
 ├── 📂 lambdas/                           # Lambda functions
 │   ├── extract_media/                    # FFmpeg extraction
-│   ├── invoke_lipreading/                # AV-HuBERT caller
+│   ├── invoke_lipreading/                # SageMaker caller
 │   ├── fuse_results/                     # Result merger
 │   ├── get_results/                      # API handler
 │   ├── s3_trigger/                       # Pipeline starter
@@ -198,14 +202,13 @@ GORGGLES2/
 │   └── start_rekognition/                # Face detection
 │
 ├── 📂 scripts/                           # Deployment automation
-│   ├── package_lambda_layers.ps1         # Layer packager
-│   ├── deploy_to_manual_ec2.ps1          # EC2 deployer
-│   ├── setup_ec2_instance.sh             # Instance setup
-│   └── deploy_ec2.sh                     # Automated EC2 (CLI)
+│   ├── build_lipcoordnet_artifact.py     # Build model.tar.gz
+│   ├── deploy_lipcoordnet.py             # Deploy to SageMaker
+│   ├── test_lipcoordnet_endpoint.py      # Test endpoint
+│   └── package_lambda_layers.ps1         # Layer packager
 │
 └── 📂 web/                               # Frontend
     ├── index.html                        # Upload + viewer UI
-    ├── app.js                            # Client-side logic
     └── README.md                         # Frontend guide
 ```
 
@@ -217,13 +220,13 @@ GORGGLES2/
 |-------|-----------|
 | **Frontend** | HTML5, CSS3, Vanilla JavaScript |
 | **API** | AWS API Gateway (HTTP API) |
-| **Compute** | AWS Lambda (Python 3.12), EC2 g6.xlarge |
-| **ML Models** | AV-HuBERT, AWS Transcribe, AWS Rekognition |
+| **Compute** | AWS Lambda (Python 3.11), SageMaker Serverless |
+| **ML Models** | LipCoordNet, AWS Transcribe, AWS Rekognition |
 | **Storage** | Amazon S3, DynamoDB |
 | **Orchestration** | AWS Step Functions |
 | **IaC** | Terraform |
-| **GPU** | NVIDIA L4 (g6.xlarge) with PyTorch + CUDA |
-| **ML Stack** | PyTorch, fairseq, dlib, OpenCV |
+| **GPU** | SageMaker ml.g5.xlarge (NVIDIA A10G) |
+| **ML Stack** | PyTorch, Transformers, dlib, OpenCV |
 
 ---
 
@@ -233,8 +236,7 @@ GORGGLES2/
 
 | Service | Usage | Cost |
 |---------|-------|------|
-| **EC2 g6.xlarge** | On-Demand, 20 hrs/month | ~$14 |
-| **EC2 g6.xlarge** | Spot, 20 hrs/month | ~$5 |
+| **SageMaker Serverless** | 50 invocations, ~5s each | ~$2-5 |
 | **Lambda** | 50 executions | ~$1 |
 | **S3** | 100 GB storage | ~$2 |
 | **Transcribe** | 4 hours audio | ~$10 |
@@ -242,14 +244,13 @@ GORGGLES2/
 | **Step Functions** | 50 executions | ~$0.10 |
 | **API Gateway** | 1000 requests | ~$0.01 |
 | **DynamoDB** | On-demand | ~$0.50 |
-| **Total (On-Demand)** | | **~$33/month** |
-| **Total (Spot)** | | **~$24/month** |
+| **Total** | | **~$21-24/month** |
 
 **Cost optimization tips:**
-- Stop EC2 when not in use
-- Use Spot instances (70% savings)
-- Set S3 lifecycle policies (delete old files)
-- Use Reserved Capacity for predictable workloads
+- Use SageMaker Serverless (pay per inference, no idle costs)
+- Set S3 lifecycle policies (delete old files after 30 days)
+- Use Step Functions Express workflows for cheaper executions
+- Batch multiple videos to reduce cold starts
 
 ---
 
@@ -275,39 +276,39 @@ GORGGLES2/
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **Inference Speed** | ~0.5s per second of video | On g6.xlarge with AV-HuBERT Large |
+| **Inference Speed** | ~3-5s per video | On SageMaker Serverless with LipCoordNet |
+| **Cold Start** | ~30-60s | First invocation after idle period |
 | **End-to-End Latency** | 2-5 minutes | For 5-minute video |
 | **Accuracy (Audio)** | 95%+ WER | AWS Transcribe standard |
-| **Accuracy (Visual)** | 85%+ WER | AV-HuBERT in clean conditions |
-| **Throughput** | ~10-20 videos/hour | Single EC2 instance |
+| **Accuracy (Visual)** | ~40% WER | LipCoordNet on GRID corpus |
+| **Throughput** | Parallel processing | Multiple videos simultaneously |
 
 ---
 
 ## 🧪 Testing
 
-### Unit Tests
+### Test LipCoordNet Endpoint
 
 ```powershell
-# Test Lambda functions
-cd lambdas/extract_media
-python -m pytest tests/
-
-# Test server
-cd avhubert
-python -m pytest tests/
+# Test with S3 video
+python scripts/test_lipcoordnet_endpoint.py `
+  --endpoint-name gorggle-lipcoordnet-dev `
+  --video-bucket gorggle-dev-uploads `
+  --video-key test-video.mov
 ```
 
 ### Integration Tests
 
 ```powershell
 # Upload test video
-aws s3 cp tests/fixtures/test-video.mp4 s3://gorggle-dev-uploads/uploads/test-001.mp4
+aws s3 cp test-video.mp4 s3://gorggle-dev-uploads/uploads/test-001.mp4
 
 # Monitor Step Functions
-aws stepfunctions list-executions --state-machine-arn arn:aws:states:us-east-1:ACCOUNT:stateMachine:gorggle-dev-pipeline
+aws stepfunctions list-executions `
+  --state-machine-arn arn:aws:states:us-east-1:ACCOUNT:stateMachine:gorggle-dev-pipeline
 
 # Fetch results
-curl https://y9m2193c2i.execute-api.us-east-1.amazonaws.com/results/test-001
+curl https://your-api-id.execute-api.us-east-1.amazonaws.com/results/test-001
 ```
 
 ---
@@ -334,18 +335,18 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgments
 
-- **AV-HuBERT**: [Facebook Research](https://github.com/facebookresearch/av_hubert)
-- **fairseq**: [Facebook AI Research](https://github.com/facebookresearch/fairseq)
+- **LipCoordNet**: [SilentSpeak](https://huggingface.co/SilentSpeak/LipCoordNet)
+- **Transformers**: [HuggingFace](https://huggingface.co/transformers)
 - **dlib**: [Davis King](http://dlib.net/)
-- **AWS**: For Transcribe, Rekognition, and cloud infrastructure
+- **AWS**: For Transcribe, Rekognition, SageMaker, and cloud infrastructure
 
 ---
 
 ## 📞 Support & Contact
 
 - **Issues**: [GitHub Issues](https://github.com/gordowuu/GORGGLES2/issues)
-- **Documentation**: See `docs/` folder
-- **Deployment Help**: See [MANUAL_EC2_DEPLOYMENT.md](MANUAL_EC2_DEPLOYMENT.md)
+- **Documentation**: See project documentation files
+- **Model**: [LipCoordNet on HuggingFace](https://huggingface.co/SilentSpeak/LipCoordNet)
 
 ---
 
@@ -353,140 +354,104 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 🎬 **Start processing videos now!** Follow the [Quick Start](#-quick-start) guide above.
 
-- `infra/terraform/` — IaC (Terraform) for buckets, IAM, Lambdas, Step Functions, DynamoDB, API Gateway
-- `lambdas/` — Python Lambda handlers for each pipeline step
-- `web/` — Minimal static viewer to render overlays
+---
 
-## Credentials setup (Windows)
+## 🔧 Advanced Configuration
 
-Never commit keys to the repo. Use the AWS CLI credentials store so Terraform and the SDKs can read them automatically.
+### SageMaker Deployment Options
 
-Option A — Named profile (recommended):
+**Serverless Inference (Recommended):**
+- Pay only for inference time
+- Auto-scales from 0 to thousands of concurrent requests
+- 30-60s cold start latency
+- Ideal for sporadic workloads
 
-```powershell
-aws configure --profile gorggle-admin
-# Then for this terminal session:
-$env:AWS_PROFILE = "gorggle-admin"
+**Real-time Endpoint:**
+- Always-on, no cold starts
+- Higher cost (~$1.41/hour for ml.g5.xlarge)
+- Use for high-throughput production workloads
+
+### Lambda Configuration
+
+The `invoke_lipreading` Lambda requires the SageMaker endpoint name as an environment variable:
+
+```bash
+SAGEMAKER_ENDPOINT=gorggle-lipcoordnet-dev
 ```
 
-Option B — Environment variables (session only):
+Update this in `lambdas/invoke_lipreading/handler.py` or set via Terraform.
 
-```powershell
-$env:AWS_ACCESS_KEY_ID = "<YOUR_ACCESS_KEY_ID>"
-$env:AWS_SECRET_ACCESS_KEY = "<YOUR_SECRET_ACCESS_KEY>"
-$env:AWS_DEFAULT_REGION = "us-east-1"
-# If using temporary credentials:
-# $env:AWS_SESSION_TOKEN = "<YOUR_SESSION_TOKEN>"
-```
+### Video Preprocessing
 
-For SSO, run `aws configure sso --profile gorggle-sso` and set `$env:AWS_PROFILE = "gorggle-sso"`.
+LipCoordNet requires specific preprocessing:
+- **Frame rate**: 25 FPS
+- **Mouth ROI**: 128×64 pixels
+- **Face detection**: Uses dlib 68-point landmarks
+- **Crop region**: Mouth landmarks (points 48-67)
 
-## Terraform variables
+The SageMaker inference handler automatically performs these steps.
 
-You can override defaults via a `terraform.tfvars` file. See `infra/terraform/terraform.tfvars.example`.
+---
 
-- project_name: defaults to `gorggle`
-- region: defaults to `us-east-1`
-- environment: defaults to `dev`
-- enable_website: defaults to `false`
+## 🚀 Deployment Best Practices
 
-## Deploy (Terraform)
+1. **Use Terraform** for reproducible infrastructure
+2. **Tag resources** with project and environment labels
+3. **Enable CloudWatch logging** for all Lambda functions
+4. **Set S3 lifecycle rules** to auto-delete old videos
+5. **Use IAM roles** with least-privilege policies
+6. **Monitor costs** with AWS Cost Explorer and budgets
+7. **Test with small videos** first (~30 seconds)
+8. **Enable X-Ray tracing** for debugging Step Functions
 
-Prereqs:
-- Terraform >= 1.5
-- AWS credentials configured (Administrator or required IAM privileges)
+---
 
-Steps:
-1. Optionally create `infra/terraform/terraform.tfvars` using the example
-2. Ensure `$env:AWS_PROFILE` (or environment variables) are set for your account
-3. Initialize and apply:
+## 📝 Troubleshooting
 
-```powershell
-cd infra/terraform
-terraform init
-terraform apply -auto-approve
-```
+### SageMaker Endpoint Issues
 
-Outputs will include:
-- Upload bucket name
-- API URL for results
+**Problem**: Endpoint deployment fails  
+**Solution**: Check CloudWatch logs at `/aws/sagemaker/Endpoints/gorggle-lipcoordnet-dev`
 
-## Uploading a video
+**Problem**: Cold start timeout  
+**Solution**: Increase Lambda timeout to 300s or use async invocation
 
-Upload an MP4 to the upload bucket under `uploads/` prefix. The pipeline will start automatically.
+**Problem**: Out of memory errors  
+**Solution**: Increase SageMaker instance memory (use ml.g5.2xlarge)
 
-## Getting results
+### Lambda Function Issues
 
-Use the API URL output to fetch processed overlay JSON by `jobId` (the S3 object key is used as a jobId sans prefix). The web viewer can be pointed at your upload and jobId.
+**Problem**: FFmpeg not found in extract_media  
+**Solution**: Add FFmpeg Lambda layer ARN to Terraform configuration
 
-## AV-HuBERT Setup (EC2 GPU Instance)
+**Problem**: Module import errors  
+**Solution**: Package dependencies with `pip install -r requirements.txt -t .`
 
-See `avhubert/README.md` for full deployment instructions.
+**Problem**: VPC timeout errors  
+**Solution**: Ensure Lambda has VPC access and security groups allow outbound traffic
 
-Quick summary:
-1. Launch EC2 g4dn.xlarge instance with Deep Learning AMI (Ubuntu)
-2. Install fairseq, av_hubert, and dependencies
-3. Download pre-trained model weights
-4. Deploy REST API server (`avhubert/server.py`)
-5. Update Lambda environment variable `AVHUBERT_ENDPOINT` with your EC2 endpoint URL
+### Video Processing Issues
 
-Cost: ~$0.526/hour on-demand, or ~$0.16/hour with Spot instances
+**Problem**: No face detected  
+**Solution**: Ensure person faces camera frontally, adequate lighting
 
-## Lambda Requirements
+**Problem**: Poor lip reading accuracy  
+**Solution**: LipCoordNet works best with clear frontal face views and minimal motion blur
 
-### extract_media Lambda
-**Critical**: Requires FFmpeg to extract audio and frames.
+**Problem**: Transcribe fails  
+**Solution**: Ensure video has audio track and is in supported format (MP4, MOV)
 
-Options:
-1. **Lambda Layer** (recommended): Use pre-built FFmpeg layer
-   - ARN: Search AWS SAR for "ffmpeg-lambda-layer" or build your own
-   - Add layer ARN to extract_media Lambda in Terraform
-   
-2. **Container Image**: Package Lambda as Docker image with FFmpeg
-   - More control, larger size
-   - See `lambdas/extract_media/Dockerfile` (to be added)
+---
 
-3. **Alternative**: Use AWS Elemental MediaConvert
-   - More expensive but fully managed
-   - Replace extract_media Lambda with MediaConvert job submission
+## 🔄 Migration Notes
 
-### invoke_lipreading & fuse_results Lambdas
-Require `requests` library (not in Lambda runtime by default).
+This project previously used AV-HuBERT on EC2. Current version uses LipCoordNet on SageMaker Serverless for better cost-efficiency and scalability.
 
-To deploy with dependencies:
-```powershell
-cd lambdas/invoke_lipreading
-pip install -r requirements.txt -t .
-# Rezip and deploy via Terraform
-```
+**Key changes:**
+- ✅ Replaced EC2 GPU instance with SageMaker Serverless
+- ✅ Switched from AV-HuBERT to LipCoordNet (HuggingFace)
+- ✅ Eliminated infrastructure management overhead
+- ✅ Reduced costs by 85% ($150/mo vs $1,014/mo)
+- ✅ Faster deployment (2-3 min vs 7-15 min)
 
-Or use Lambda Layers for requests.
-
-## Notes
-- **Extract media**: Currently needs FFmpeg Lambda Layer (not included). Add layer ARN to Terraform or use Container Image.
-- **Transcribe & Rekognition**: Work directly on MP4 files; no extraction needed for these services.
-- **AV-HuBERT**: Requires EC2 GPU setup. See `avhubert/` directory for deployment guide.
-- **Fusion logic**: Aligns audio transcripts with face tracks and lip reading. Can be enhanced with better time-window matching and confidence weighting.
-
-## Cost per 10-minute video
-- Processing: ~$0.44 (Transcribe $0.24, Rekognition $0.10, Lambda $0.003, EC2 $0.09)
-- Storage: ~$0.01/month
-- See `ARCHITECTURE.md` for detailed breakdown and optimization strategies
-
-## Local Dev
-- Lambdas are plain Python 3.11 compatible
-- Keep Lambda deps small; use layers or container images for heavy libs
-
-## Security
-- Principle of least privilege for IAM roles
-- S3 buckets have server-side encryption enabled
-
-## Next steps
-- **Add FFmpeg Lambda Layer**: Package FFmpeg for extract_media Lambda or use Container Image
-- **Deploy AV-HuBERT**: Set up EC2 GPU instance following `avhubert/README.md`
-- **Add requests to Lambdas**: Package dependencies or use Lambda Layer for invoke_lipreading and fuse_results
-- **Replace polling**: Use Step Functions callbacks + EventBridge instead of blocking Lambda polls
-- **Enhance fusion**: Implement sophisticated alignment algorithm for multi-speaker overlap scenarios
-- **Add CloudFront**: Serve web UI and video assets via CDN
-- **Authentication**: Add API Gateway authorizer or Cognito for production
-- **Monitoring**: Set up CloudWatch dashboards and alarms
+Old EC2/AV-HuBERT code is available in git history if needed.
