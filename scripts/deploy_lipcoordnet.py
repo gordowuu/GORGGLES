@@ -50,9 +50,9 @@ def main():
     huggingface_model = HuggingFaceModel(
         env=hub_config,
         role=args.role_arn,
-        transformers_version='4.35.0',
-        pytorch_version='2.1.0',
-        py_version='py310',
+        transformers_version='4.49.0',  # Use latest supported version
+        pytorch_version='2.6.0',  # Match required PyTorch version
+        py_version='py312',  # Use Python 3.12
         sagemaker_session=sagemaker_session
     )
     
