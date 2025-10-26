@@ -1,9 +1,25 @@
 # Dependencies for LipCoordNet inference on SageMaker
-# Using HuggingFace Transformers
+# Based on https://huggingface.co/SilentSpeak/LipCoordNet/blob/main/requirements.txt
 
 transformers>=4.49.0
 torch>=2.0.0
+torchvision>=0.16.0
+torchaudio>=2.1.0
+
+# Computer vision & image processing
 opencv-python-headless==4.8.1.78
-numpy>=1.24.0
 dlib>=19.24.0
+Pillow>=9.3.0
+scikit-image>=0.22.0
+imageio>=2.33.0
+
+# Core dependencies
+numpy>=1.24.0
+scipy>=1.11.0
+
+# NLP metrics
+editdistance>=0.6.0
+
+# AWS & utilities
 boto3>=1.28.0
+tqdm>=4.66.0
